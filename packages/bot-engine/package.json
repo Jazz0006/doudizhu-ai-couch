@@ -1,0 +1,29 @@
+{
+  "name": "@ai-doudizhu/bot-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "npm run build --workspace @ai-doudizhu/game-core",
+    "build": "tsc -p tsconfig.build.json",
+    "pretypecheck": "npm run build --workspace @ai-doudizhu/game-core",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run build --workspace @ai-doudizhu/game-core",
+    "test": "vitest run",
+    "simulate": "npm run build && node dist/cli.js"
+  },
+  "dependencies": {
+    "@ai-doudizhu/game-core": "*"
+  }
+}
