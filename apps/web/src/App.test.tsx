@@ -10,5 +10,8 @@ describe("App", () => {
     expect(html).toContain("练牌桌");
     expect(html).toContain("要叫地主吗");
     expect(html).toContain("重新开局");
+    expect(html).toContain("对手难度");
+    expect(html).toContain("中等");
+    expect(html).toContain("完整本地语音");
   });
 });

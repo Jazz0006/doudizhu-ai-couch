@@ -18,5 +18,30 @@ export default tseslint.config(
       },
     },
   },
+  {
+    files: ["scripts/**/*.{cjs,mjs}"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.nodeBuiltin,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
+    files: ["apps/web/public/*-worklet.js"],
+    languageOptions: {
+      globals: {
+        AudioWorkletProcessor: "readonly",
+        Float32Array: "readonly",
+        Boolean: "readonly",
+        Math: "readonly",
+        registerProcessor: "readonly",
+        sampleRate: "readonly",
+      },
+    },
+  },
   prettier,
 );

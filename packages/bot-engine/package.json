@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit",
     "pretest": "npm run build --workspace @ai-doudizhu/game-core",
     "test": "vitest run",
-    "simulate": "npm run build && node dist/cli.js"
+    "simulate": "npm run build && node dist/cli.js",
+    "validate:10000": "npm run build && node dist/cli.js validation all 10000"
   },
   "dependencies": {
     "@ai-doudizhu/game-core": "*"

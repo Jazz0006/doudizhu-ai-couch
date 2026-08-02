@@ -4,18 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "npm run build --workspace @ai-doudizhu/bot-engine",
+    "predev": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine",
     "dev": "vite",
-    "prebuild": "npm run build --workspace @ai-doudizhu/bot-engine",
+    "prebuild": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine",
     "build": "tsc --noEmit && vite build",
-    "pretypecheck": "npm run build --workspace @ai-doudizhu/bot-engine",
+    "pretypecheck": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine",
     "typecheck": "tsc --noEmit",
-    "pretest": "npm run build --workspace @ai-doudizhu/bot-engine",
+    "pretest": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine",
     "test": "vitest run"
   },
   "dependencies": {
     "@ai-doudizhu/bot-engine": "*",
     "@ai-doudizhu/game-core": "*",
+    "@ai-doudizhu/shared-types": "^0.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

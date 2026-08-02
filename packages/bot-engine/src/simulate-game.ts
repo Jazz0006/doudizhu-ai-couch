@@ -7,6 +7,7 @@ import {
 import type { FullGameState } from "@ai-doudizhu/game-core";
 
 import { chooseBotAction, chooseBotBid } from "./simple-bot.js";
+import type { Difficulty } from "./simple-bot.js";
 import { getBotGameView } from "./view.js";
 
 export interface SimulationOptions {
@@ -14,6 +15,7 @@ export interface SimulationOptions {
   readonly randomSeed?: string | number;
   readonly maxActions?: number;
   readonly startTime?: string;
+  readonly difficulty?: Difficulty;
 }
 
 export interface SimulationResult {
@@ -27,6 +29,7 @@ export function simulateGame(
   const maxActions = options.maxActions ?? 2_000;
   const startTime = options.startTime ?? "2026-01-01T00:00:00.000Z";
   const startMilliseconds = Date.parse(startTime);
+  const difficulty = options.difficulty ?? "medium";
 
   if (!Number.isFinite(startMilliseconds)) {
     throw new Error("startTime must be a valid ISO timestamp");
@@ -51,7 +54,12 @@ export function simulateGame(
     actionCount += 1;
 
     if (state.phase === "bidding") {
-      state = submitBid(state, seat, chooseBotBid(view), nextTimestamp());
+      state = submitBid(
+        state,
+        seat,
+        chooseBotBid(view, difficulty),
+        nextTimestamp(),
+      );
       continue;
     }
 
@@ -59,7 +67,7 @@ export function simulateGame(
       throw new Error(`Unsupported simulation phase: ${state.phase}`);
     }
 
-    const action = chooseBotAction(view);
+    const action = chooseBotAction(view, difficulty);
     state =
       action.type === "pass"
         ? passTurn(state, seat, nextTimestamp())

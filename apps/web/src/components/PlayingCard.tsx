@@ -6,6 +6,7 @@ interface PlayingCardProps {
   readonly disabled?: boolean;
   readonly compact?: boolean;
   readonly onClick?: () => void;
+  readonly cardIndex?: number;
 }
 
 export function PlayingCard({
@@ -14,6 +15,7 @@ export function PlayingCard({
   disabled = false,
   compact = false,
   onClick,
+  cardIndex,
 }: PlayingCardProps) {
   const red = card.suit === "heart" || card.suit === "diamond";
   const joker = card.suit === "joker";
@@ -48,7 +50,10 @@ export function PlayingCard({
       aria-label={`${selected ? "取消选择" : "选择"}${label}`}
       aria-pressed={selected}
       disabled={disabled}
+      data-card-id={card.id}
+      data-card-index={cardIndex}
       onClick={onClick}
+      style={cardIndex === undefined ? undefined : { zIndex: cardIndex + 1 }}
     >
       <span className="card-rank">{rankLabel(card.rank)}</span>
       <span className="card-suit">{suitSymbol(card.suit)}</span>

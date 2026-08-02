@@ -7,3 +7,6 @@ coverage/
 !.env.example
 .DS_Store
 Thumbs.db
+models/voice/
+certs/local/
+tools/local/

@@ -8,9 +8,27 @@
   "files": [
     "dist"
   ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
+    "prebuild": "npm run build --workspace @ai-doudizhu/shared-types",
     "build": "tsc -p tsconfig.build.json",
+    "pretypecheck": "npm run build --workspace @ai-doudizhu/shared-types",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "pretest": "npm run build --workspace @ai-doudizhu/shared-types",
+    "test": "vitest run",
+    "start": "npm run build && node dist/cli.js"
+  },
+  "dependencies": {
+    "@ai-doudizhu/shared-types": "^0.0.0",
+    "sherpa-onnx-node": "^1.13.4",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

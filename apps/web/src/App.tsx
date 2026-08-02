@@ -3,8 +3,10 @@ import { useMemo } from "react";
 import { ActionBar } from "./components/ActionBar";
 import { BiddingPanel } from "./components/BiddingPanel";
 import { CardFan } from "./components/CardFan";
+import { DifficultySelector } from "./components/DifficultySelector";
 import { GameTable } from "./components/GameTable";
 import { SeatPlayArea } from "./components/SeatPlayArea";
+import { VoiceControl } from "./components/VoiceControl";
 import { getCurrentTrickActions } from "./game/currentTrick";
 import { useGameController } from "./game/useGameController";
 import "./styles.css";
@@ -27,10 +29,19 @@ export function App() {
           <p className="eyebrow">AI 斗地主教练</p>
           <h1>练牌桌</h1>
         </div>
-        <button className="quiet-button" onClick={game.restart} type="button">
-          重新开局
-        </button>
+        <div className="topbar-actions">
+          <DifficultySelector
+            value={game.difficulty}
+            disabled={game.botThinking}
+            onChange={game.changeDifficulty}
+          />
+          <button className="quiet-button" onClick={game.restart} type="button">
+            重新开局
+          </button>
+        </div>
       </header>
+
+      <VoiceControl />
 
       <section className="game-frame" aria-label="斗地主牌桌">
         <GameTable
@@ -68,10 +79,12 @@ export function App() {
           ) : (
             <ActionBar
               canAct={game.canUserPlay}
+              canClear={game.canUserPlay && game.selectedCardIds.length > 0}
               canPass={game.canUserPass}
               canPlay={game.canSubmitSelection}
               isFinished={game.state.phase === "finished"}
               onHint={game.hint}
+              onClear={game.clearSelection}
               onPass={game.pass}
               onPlay={game.play}
               onRestart={game.restart}
@@ -86,7 +99,7 @@ export function App() {
             cards={game.state.hands.user}
             disabled={!game.canUserPlay}
             selectedCardIds={game.selectedCardIds}
-            onToggle={game.toggleCard}
+            onSelectionChange={game.changeSelection}
           />
         </div>
 

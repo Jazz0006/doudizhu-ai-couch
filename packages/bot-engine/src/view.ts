@@ -4,6 +4,7 @@ import type {
   FullGameState,
   GamePhase,
   Play,
+  PlayRecord,
   Seat,
 } from "@ai-doudizhu/game-core";
 
@@ -20,6 +21,7 @@ export interface BotGameView {
   readonly trickLeader: Seat | null;
   readonly consecutivePasses: number;
   readonly remainingCardCounts: Record<Seat, number>;
+  readonly publicHistory: PlayRecord[];
   readonly actionCount: number;
   readonly randomSeed: string;
 }
@@ -42,6 +44,7 @@ export function getBotGameView(state: FullGameState, seat: Seat): BotGameView {
       left: state.hands.left.length,
       right: state.hands.right.length,
     },
+    publicHistory: [...state.history],
     actionCount: state.history.length + state.biddingHistory.length,
     randomSeed: state.randomSeed,
   };

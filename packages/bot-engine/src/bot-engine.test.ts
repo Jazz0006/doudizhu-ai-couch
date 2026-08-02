@@ -103,6 +103,44 @@ describe("simple bot", () => {
       "playing phase",
     );
   });
+
+  it("reproduces decisions for every difficulty", () => {
+    const bidding = createGame({
+      gameId: "difficulty-repeatability",
+      randomSeed: "difficulty-repeatability",
+      now: NOW,
+    });
+    const playing = submitBid(bidding, "user", 3, NOW);
+    const view = getBotGameView(playing, "user");
+
+    for (const difficulty of ["easy", "medium", "hard"] as const) {
+      expect(chooseBotAction(view, difficulty)).toEqual(
+        chooseBotAction(view, difficulty),
+      );
+    }
+  });
+
+  it("produces distinct seeded profiles across the three difficulties", () => {
+    const summaries = (["easy", "medium", "hard"] as const).map(
+      (difficulty) => {
+        const { state } = simulateGame({
+          randomSeed: "profile-4",
+          difficulty,
+        });
+
+        return JSON.stringify({
+          bids: state.biddingHistory.map(({ bid }) => bid),
+          opening: state.history.slice(0, 8).map(({ action, play }) => ({
+            action,
+            type: play?.type,
+            rank: play?.primaryRank,
+          })),
+        });
+      },
+    );
+
+    expect(new Set(summaries).size).toBe(3);
+  });
 });
 
 describe("simulateGame", () => {
@@ -134,11 +172,15 @@ describe("simulateGame", () => {
   });
 
   it("finishes a batch of seeded games without illegal transitions", () => {
-    const results = Array.from({ length: 25 }, (_, index) =>
-      simulateGame({
-        randomSeed: `batch-${index}`,
-        maxActions: 500,
-      }),
+    const results = (["easy", "medium", "hard"] as const).flatMap(
+      (difficulty) =>
+        Array.from({ length: 10 }, (_, index) =>
+          simulateGame({
+            randomSeed: `batch-${difficulty}-${index}`,
+            difficulty,
+            maxActions: 500,
+          }),
+        ),
     );
 
     expect(results.every(({ state }) => state.phase === "finished")).toBe(true);

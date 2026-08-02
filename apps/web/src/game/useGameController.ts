@@ -17,6 +17,7 @@ import {
   chooseBotBid,
   getBotGameView,
 } from "@ai-doudizhu/bot-engine";
+import type { Difficulty } from "@ai-doudizhu/bot-engine";
 
 const BOT_DELAY_MS = 560;
 
@@ -25,16 +26,19 @@ export interface GameController {
   readonly selectedCardIds: string[];
   readonly notice: string;
   readonly botThinking: boolean;
+  readonly difficulty: Difficulty;
   readonly canUserBid: boolean;
   readonly canUserPlay: boolean;
   readonly canUserPass: boolean;
   readonly canSubmitSelection: boolean;
   readonly bid: (bid: Bid) => void;
-  readonly toggleCard: (cardId: string) => void;
+  readonly changeSelection: (cardIds: readonly string[]) => void;
+  readonly clearSelection: () => void;
   readonly play: () => void;
   readonly pass: () => void;
   readonly hint: () => void;
   readonly restart: () => void;
+  readonly changeDifficulty: (difficulty: Difficulty) => void;
   readonly recognizeSelection: () => Play | null;
 }
 
@@ -43,6 +47,7 @@ export function useGameController(): GameController {
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [notice, setNotice] = useState("请叫分，看看这手牌值不值得当地主。");
   const [botThinking, setBotThinking] = useState(false);
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
 
   const canUserBid = state.phase === "bidding" && state.currentTurn === "user";
   const canUserPlay = state.phase === "playing" && state.currentTurn === "user";
@@ -96,7 +101,7 @@ export function useGameController(): GameController {
       const view = getBotGameView(state, expectedSeat);
 
       if (state.phase === "bidding") {
-        const bid = chooseBotBid(view);
+        const bid = chooseBotBid(view, difficulty);
         setNotice(
           `${seatLabel(expectedSeat)}${bid === 0 ? "不叫" : `叫 ${bid} 分`}。`,
         );
@@ -105,7 +110,7 @@ export function useGameController(): GameController {
         return;
       }
 
-      const action = chooseBotAction(view);
+      const action = chooseBotAction(view, difficulty);
 
       if (action.type === "pass") {
         setNotice(`${seatLabel(expectedSeat)}选择不出。`);
@@ -121,7 +126,7 @@ export function useGameController(): GameController {
     }, BOT_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [state]);
+  }, [difficulty, state]);
 
   const bid = useCallback(
     (value: Bid) => {
@@ -135,18 +140,22 @@ export function useGameController(): GameController {
     [state],
   );
 
-  const toggleCard = useCallback(
-    (cardId: string) => {
+  const changeSelection = useCallback(
+    (cardIds: readonly string[]) => {
       if (!canUserPlay) return;
 
-      setSelectedCardIds((current) =>
-        current.includes(cardId)
-          ? current.filter((id) => id !== cardId)
-          : [...current, cardId],
+      const handIds = new Set(state.hands.user.map(({ id }) => id));
+      setSelectedCardIds(
+        [...new Set(cardIds)].filter((cardId) => handIds.has(cardId)),
       );
     },
-    [canUserPlay],
+    [canUserPlay, state.hands.user],
   );
+
+  const clearSelection = useCallback(() => {
+    setSelectedCardIds([]);
+    setNotice("已清空选牌。");
+  }, []);
 
   const play = useCallback(() => {
     try {
@@ -198,6 +207,15 @@ export function useGameController(): GameController {
     setNotice("新的一局开始了，请叫分。");
   }, []);
 
+  const changeDifficulty = useCallback((nextDifficulty: Difficulty) => {
+    setDifficulty(nextDifficulty);
+    setState(createBrowserGame());
+    setSelectedCardIds([]);
+    setNotice(
+      `已切换为${difficultyLabel(nextDifficulty)}难度，并开启新的一局。`,
+    );
+  }, []);
+
   const recognizeSelection = useCallback(() => selectedPlay, [selectedPlay]);
 
   return {
@@ -205,18 +223,26 @@ export function useGameController(): GameController {
     selectedCardIds,
     notice,
     botThinking,
+    difficulty,
     canUserBid,
     canUserPlay,
     canUserPass,
     canSubmitSelection,
     bid,
-    toggleCard,
+    changeSelection,
+    clearSelection,
     play,
     pass,
     hint,
     restart,
+    changeDifficulty,
     recognizeSelection,
   };
+}
+
+function difficultyLabel(difficulty: Difficulty): string {
+  if (difficulty === "easy") return "简单";
+  return difficulty === "hard" ? "困难" : "中等";
 }
 
 function createBrowserGame(): FullGameState {

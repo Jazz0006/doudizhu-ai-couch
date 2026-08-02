@@ -1,0 +1,41 @@
+{
+  "runtime": {
+    "package": "sherpa-onnx-node",
+    "version": "1.13.4",
+    "license": "Apache-2.0"
+  },
+  "vad": {
+    "id": "silero-vad",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+    "target": "models/voice/vad/silero_vad.onnx",
+    "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+    "license": "MIT"
+  },
+  "asr": {
+    "id": "sherpa-onnx-streaming-paraformer-bilingual-zh-en",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2",
+    "target": "models/voice/asr/sherpa-onnx-streaming-paraformer-bilingual-zh-en",
+    "files": ["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt"],
+    "archiveBytes": 1047319737,
+    "archiveSha256": "5462a1fce42693deae572af1e8c4687124b12aa85fe61ff4d3168bb5280e205f",
+    "license": "Apache-2.0"
+  },
+  "tts": {
+    "id": "kokoro-multi-lang-v1_1",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
+    "target": "models/voice/tts/kokoro-multi-lang-v1_1",
+    "files": ["model.onnx", "voices.bin", "tokens.txt", "lexicon-zh.txt"],
+    "archiveBytes": 364816464,
+    "archiveSha256": "a3f4c73d043860e3fd2e5b06f36795eb81de0fc8e8de6df703245edddd87dbad",
+    "license": "Apache-2.0"
+  },
+  "ttsAlternative": {
+    "id": "vits-melo-tts-zh_en",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-melo-tts-zh_en.tar.bz2",
+    "target": "models/voice/tts/vits-melo-tts-zh_en",
+    "files": ["model.onnx", "tokens.txt", "lexicon.txt"],
+    "archiveBytes": 167006755,
+    "archiveSha256": "e58351ed7149f290a54534538badd4077cdbe6fddc964b24d0bee870415d1514",
+    "license": "MIT"
+  }
+}

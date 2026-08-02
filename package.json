@@ -16,7 +16,16 @@
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "voice:download": "powershell -ExecutionPolicy Bypass -File scripts/voice/download-models.ps1",
+    "voice:setup:https": "powershell -ExecutionPolicy Bypass -File scripts/voice/setup-local-https.ps1",
+    "voice:smoke:https": "powershell -ExecutionPolicy Bypass -File scripts/voice/smoke-local-https.ps1",
+    "voice:dev:server": "powershell -ExecutionPolicy Bypass -File scripts/voice/start-local-server.ps1",
+    "voice:dev:web": "powershell -ExecutionPolicy Bypass -File scripts/voice/start-local-web.ps1",
+    "voice:probe:runtime": "node scripts/voice/probe-runtime.cjs",
+    "voice:probe:asr": "node scripts/voice/probe-asr.cjs",
+    "voice:probe:tts": "node scripts/voice/probe-tts.cjs",
+    "voice:benchmark:ollama": "node scripts/voice/benchmark-ollama.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
