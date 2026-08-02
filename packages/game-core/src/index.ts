@@ -44,3 +44,15 @@ export { BASIC_PLAY_TYPES, PLAY_TYPES, recognizePlay } from "./play.js";
 export type { BasicPlay, BasicPlayType, Play, PlayType } from "./play.js";
 export { createSeededRandom } from "./random.js";
 export type { RandomSource } from "./random.js";
+export {
+  GAME_STATE_SCHEMA_VERSION,
+  replayGameActions,
+  restoreGameState,
+  serializeGameState,
+} from "./serialization.js";
+export type {
+  ReplayedGameAction,
+  SerializedBidAction,
+  SerializedGameState,
+  SerializedPlayAction,
+} from "./serialization.js";

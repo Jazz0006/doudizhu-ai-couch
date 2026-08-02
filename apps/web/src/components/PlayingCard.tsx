@@ -3,6 +3,7 @@ import type { Card } from "@ai-doudizhu/game-core";
 interface PlayingCardProps {
   readonly card: Card;
   readonly selected?: boolean;
+  readonly highlighted?: boolean;
   readonly disabled?: boolean;
   readonly compact?: boolean;
   readonly onClick?: () => void;
@@ -12,6 +13,7 @@ interface PlayingCardProps {
 export function PlayingCard({
   card,
   selected = false,
+  highlighted = false,
   disabled = false,
   compact = false,
   onClick,
@@ -29,6 +31,7 @@ export function PlayingCard({
     red ? "is-red" : "",
     joker ? "is-joker" : "",
     selected ? "is-selected" : "",
+    highlighted ? "is-coach-highlighted" : "",
     compact ? "is-compact" : "",
   ]
     .filter(Boolean)
@@ -47,7 +50,7 @@ export function PlayingCard({
     <button
       type="button"
       className={className}
-      aria-label={`${selected ? "取消选择" : "选择"}${label}`}
+      aria-label={`${selected ? "取消选择" : "选择"}${label}${highlighted ? "，教练高亮" : ""}`}
       aria-pressed={selected}
       disabled={disabled}
       data-card-id={card.id}

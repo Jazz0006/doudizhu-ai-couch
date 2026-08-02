@@ -4,17 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine",
+    "predev": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine && npm run build --workspace @ai-doudizhu/coach-protocol",
     "dev": "vite",
-    "prebuild": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine",
+    "prebuild": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine && npm run build --workspace @ai-doudizhu/coach-protocol",
     "build": "tsc --noEmit && vite build",
-    "pretypecheck": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine",
+    "pretypecheck": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine && npm run build --workspace @ai-doudizhu/coach-protocol",
     "typecheck": "tsc --noEmit",
-    "pretest": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine",
+    "pretest": "npm run build --workspace @ai-doudizhu/shared-types && npm run build --workspace @ai-doudizhu/bot-engine && npm run build --workspace @ai-doudizhu/coach-protocol",
     "test": "vitest run"
   },
   "dependencies": {
     "@ai-doudizhu/bot-engine": "*",
+    "@ai-doudizhu/coach-protocol": "*",
     "@ai-doudizhu/game-core": "*",
     "@ai-doudizhu/shared-types": "^0.0.0",
     "react": "^19.2.8",

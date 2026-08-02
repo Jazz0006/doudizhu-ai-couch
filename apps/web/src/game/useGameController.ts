@@ -18,6 +18,14 @@ import {
   getBotGameView,
 } from "@ai-doudizhu/bot-engine";
 import type { Difficulty } from "@ai-doudizhu/bot-engine";
+import { createGameReview } from "@ai-doudizhu/coach-protocol";
+
+import {
+  clearGameSnapshot,
+  loadGameSnapshot,
+  saveGameSnapshot,
+  saveGameSummary,
+} from "./gameStorage";
 
 const BOT_DELAY_MS = 560;
 
@@ -27,6 +35,7 @@ export interface GameController {
   readonly notice: string;
   readonly botThinking: boolean;
   readonly difficulty: Difficulty;
+  readonly ready: boolean;
   readonly canUserBid: boolean;
   readonly canUserPlay: boolean;
   readonly canUserPass: boolean;
@@ -45,12 +54,15 @@ export interface GameController {
 export function useGameController(): GameController {
   const [state, setState] = useState(createBrowserGame);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
-  const [notice, setNotice] = useState("请叫分，看看这手牌值不值得当地主。");
+  const [notice, setNotice] = useState("正在检查本地存档…");
   const [botThinking, setBotThinking] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+  const [ready, setReady] = useState(false);
 
-  const canUserBid = state.phase === "bidding" && state.currentTurn === "user";
-  const canUserPlay = state.phase === "playing" && state.currentTurn === "user";
+  const canUserBid =
+    ready && state.phase === "bidding" && state.currentTurn === "user";
+  const canUserPlay =
+    ready && state.phase === "playing" && state.currentTurn === "user";
   const canUserPass = canUserPlay && state.currentWinningPlay !== null;
 
   const selectedCards = useMemo(() => {
@@ -68,10 +80,60 @@ export function useGameController(): GameController {
       canBeatPlay(selectedPlay, state.currentWinningPlay));
 
   useEffect(() => {
+    let active = true;
+    void loadGameSnapshot()
+      .then((saved) => {
+        if (!active) return;
+        if (saved) {
+          setState(saved.state);
+          setDifficulty(saved.difficulty);
+          setNotice(
+            saved.state.phase === "finished"
+              ? "已恢复上一局结果，可以继续查看复盘。"
+              : "已恢复上次未完成的牌局。",
+          );
+        } else {
+          setNotice("请叫分，看看这手牌值不值得当地主。");
+        }
+        setReady(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        void clearGameSnapshot().catch(() => undefined);
+        setNotice("本地存档无效，已安全开启新的一局。");
+        setReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const timer = window.setTimeout(() => {
+      void saveGameSnapshot(state, difficulty).catch(() => {
+        setNotice("本局可以继续，但暂时无法写入本地存档。");
+      });
+      if (state.phase === "finished" && state.winner) {
+        const review = createGameReview(state);
+        void saveGameSummary({
+          gameId: state.gameId,
+          endedAt: state.updatedAt,
+          difficulty,
+          winner: state.winner,
+          review,
+        }).catch(() => undefined);
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [difficulty, ready, state]);
+
+  useEffect(() => {
     setSelectedCardIds([]);
   }, [state.currentTurn, state.phase]);
 
   useEffect(() => {
+    if (!ready) return;
     if (
       state.phase === "finished" ||
       state.currentTurn === "user" ||
@@ -126,7 +188,7 @@ export function useGameController(): GameController {
     }, BOT_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [difficulty, state]);
+  }, [difficulty, ready, state]);
 
   const bid = useCallback(
     (value: Bid) => {
@@ -224,6 +286,7 @@ export function useGameController(): GameController {
     notice,
     botThinking,
     difficulty,
+    ready,
     canUserBid,
     canUserPlay,
     canUserPass,

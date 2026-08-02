@@ -3,7 +3,7 @@ import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Server as HttpsServer } from "node:https";
 import type { Socket } from "node:net";
 
-import { decodePcm16Frame } from "@ai-doudizhu/shared-types";
+import { decodePcm16Frame, encodePcm16Frame } from "@ai-doudizhu/shared-types";
 import { WebSocket, WebSocketServer } from "ws";
 import type { RawData } from "ws";
 
@@ -12,6 +12,16 @@ import {
   VOICE_PROTOCOL_VERSION,
 } from "./voice-protocol.js";
 import type { VoiceServerControlEvent } from "./voice-protocol.js";
+import type {
+  SpeechRecognitionEvent,
+  SpeechRecognitionService,
+} from "./speech-recognition.js";
+import type { CoachTextEvent, CoachTextService } from "./coach-text.js";
+import {
+  cleanTextForSpeech,
+  takeCompleteSentences,
+} from "./sentence-buffer.js";
+import type { SpeechSynthesisService } from "./speech-synthesis.js";
 
 const VOICE_SESSION_PATH = "/api/voice/session";
 const VOICE_SOCKET_PATH = "/api/voice/ws";
@@ -19,11 +29,16 @@ const DEFAULT_SESSION_TTL_MS = 5 * 60_000;
 const AUTHENTICATION_TIMEOUT_MS = 5_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_CONTROL_OR_AUDIO_FRAME_BYTES = 64 * 1024;
+const OUTPUT_AUDIO_FRAME_SAMPLES = 2_048;
+const MAX_OUTPUT_BUFFERED_BYTES = 1024 * 1024;
 
 export interface VoiceSessionGatewayOptions {
   readonly now?: () => Date;
   readonly allowedOrigins?: readonly string[];
   readonly sessionTtlMs?: number;
+  readonly speechRecognition?: SpeechRecognitionService;
+  readonly coachText?: CoachTextService;
+  readonly speechSynthesis?: SpeechSynthesisService;
 }
 
 export interface CreatedVoiceSession {
@@ -49,6 +64,13 @@ interface ConnectionState {
   inputSampleRate?: number;
   nextInputSequence: number;
   totalInputSamples: number;
+  recognitionSessionId: string | undefined;
+  coachGenerationId: number | undefined;
+  ttsGenerationId: number | undefined;
+  ttsBuffer: string;
+  ttsStarted: boolean;
+  ttsOutputSequence: number;
+  ttsChain: Promise<void>;
 }
 
 export interface VoiceSessionGateway {
@@ -58,7 +80,7 @@ export interface VoiceSessionGateway {
     socket: Socket,
     head: Buffer,
   ) => void;
-  readonly close: () => void;
+  readonly close: () => Promise<void>;
 }
 
 export function createVoiceSessionGateway(
@@ -68,6 +90,9 @@ export function createVoiceSessionGateway(
   const now = options.now ?? (() => new Date());
   const sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
+  const speechRecognition = options.speechRecognition;
+  const coachText = options.coachText;
+  const speechSynthesis = options.speechSynthesis;
   const sessions = new Map<string, StoredSession>();
   const activeConnections = new Map<string, WebSocket>();
   const webSocketServer = new WebSocketServer({
@@ -102,6 +127,13 @@ export function createVoiceSessionGateway(
         inputStarted: false,
         nextInputSequence: 0,
         totalInputSamples: 0,
+        recognitionSessionId: undefined,
+        coachGenerationId: undefined,
+        ttsGenerationId: undefined,
+        ttsBuffer: "",
+        ttsStarted: false,
+        ttsOutputSequence: 0,
+        ttsChain: Promise.resolve(),
       } satisfies ConnectionState);
     connectionStates.set(webSocket, state);
     const authenticationTimeout = setTimeout(() => {
@@ -125,6 +157,9 @@ export function createVoiceSessionGateway(
         sessions,
         activeConnections,
         now,
+        ...(speechRecognition ? { speechRecognition } : {}),
+        ...(coachText ? { coachText } : {}),
+        ...(speechSynthesis ? { speechSynthesis } : {}),
       });
     });
     webSocket.on("close", () => {
@@ -135,6 +170,12 @@ export function createVoiceSessionGateway(
       ) {
         activeConnections.delete(state.sessionId);
       }
+      if (state.recognitionSessionId) {
+        speechRecognition?.remove(state.recognitionSessionId);
+        state.recognitionSessionId = undefined;
+      }
+      if (state.sessionId) coachText?.remove(state.sessionId);
+      if (state.sessionId) speechSynthesis?.remove(state.sessionId);
     });
   });
 
@@ -174,18 +215,28 @@ export function createVoiceSessionGateway(
         inputStarted: false,
         nextInputSequence: 0,
         totalInputSamples: 0,
+        recognitionSessionId: undefined,
+        coachGenerationId: undefined,
+        ttsGenerationId: undefined,
+        ttsBuffer: "",
+        ttsStarted: false,
+        ttsOutputSequence: 0,
+        ttsChain: Promise.resolve(),
       };
       connectionStates.set(webSocket, state);
       webSocketServer.emit("connection", webSocket, request);
     });
   };
 
-  const close = (): void => {
+  const close = async (): Promise<void> => {
     clearInterval(heartbeat);
     for (const webSocket of webSocketServer.clients) webSocket.terminate();
     webSocketServer.close();
     sessions.clear();
     activeConnections.clear();
+    await speechRecognition?.close();
+    await coachText?.close();
+    await speechSynthesis?.close();
   };
 
   server.on("upgrade", handleUpgrade);
@@ -202,11 +253,24 @@ interface HandleSocketMessageOptions {
   readonly sessions: Map<string, StoredSession>;
   readonly activeConnections: Map<string, WebSocket>;
   readonly now: () => Date;
+  readonly speechRecognition?: SpeechRecognitionService;
+  readonly coachText?: CoachTextService;
+  readonly speechSynthesis?: SpeechSynthesisService;
 }
 
 function handleSocketMessage(options: HandleSocketMessageOptions): void {
-  const { webSocket, data, isBinary, state, sessions, activeConnections, now } =
-    options;
+  const {
+    webSocket,
+    data,
+    isBinary,
+    state,
+    sessions,
+    activeConnections,
+    now,
+    speechRecognition,
+    coachText,
+    speechSynthesis,
+  } = options;
   connectionStates.set(webSocket, state);
 
   if (isBinary) {
@@ -218,7 +282,7 @@ function handleSocketMessage(options: HandleSocketMessageOptions): void {
       );
       return;
     }
-    handleInputAudioFrame(webSocket, data, state);
+    handleInputAudioFrame(webSocket, data, state, speechRecognition);
     return;
   }
 
@@ -281,6 +345,10 @@ function handleSocketMessage(options: HandleSocketMessageOptions): void {
 
   switch (message.type) {
     case "turn.cancel": {
+      if (state.sessionId) coachText?.cancel(state.sessionId);
+      if (state.sessionId) speechSynthesis?.cancel(state.sessionId);
+      state.coachGenerationId = undefined;
+      resetTtsState(state);
       state.generationId = Math.max(
         state.generationId + 1,
         message.generationId ?? 0,
@@ -300,10 +368,30 @@ function handleSocketMessage(options: HandleSocketMessageOptions): void {
       );
       break;
     case "input.start":
+      if (state.recognitionSessionId) {
+        speechRecognition?.remove(state.recognitionSessionId);
+      }
       state.inputStarted = true;
       state.inputSampleRate = message.sampleRate;
       state.nextInputSequence = 0;
       state.totalInputSamples = 0;
+      state.recognitionSessionId = state.sessionId
+        ? `${state.sessionId}:${randomUUID()}`
+        : undefined;
+      if (speechRecognition && state.sessionId) {
+        speechRecognition.start(
+          state.recognitionSessionId ?? state.sessionId,
+          message.sampleRate,
+          (event) =>
+            handleRecognitionEvent(
+              webSocket,
+              state,
+              event,
+              coachText,
+              speechSynthesis,
+            ),
+        );
+      }
       sendEvent(webSocket, {
         type: "input.ready",
         sampleRate: message.sampleRate,
@@ -311,9 +399,23 @@ function handleSocketMessage(options: HandleSocketMessageOptions): void {
       break;
     case "input.stop":
       state.inputStarted = false;
+      void finishRecognitionInput(webSocket, state, speechRecognition);
+      break;
+    case "game.context":
+      if (!state.sessionId || !coachText) {
+        sendError(
+          webSocket,
+          "COACH_UNAVAILABLE",
+          "Game context requires an available coach service",
+          true,
+        );
+        break;
+      }
+      coachText.updateGameContext(state.sessionId, message.update);
       sendEvent(webSocket, {
-        type: "input.stopped",
-        totalSamples: state.totalInputSamples,
+        type: "game.context.accepted",
+        revision: message.update.revision,
+        gameId: message.update.state.gameId,
       });
       break;
     case "session.close":
@@ -334,6 +436,7 @@ function handleInputAudioFrame(
   webSocket: WebSocket,
   data: RawData,
   state: ConnectionState,
+  speechRecognition?: SpeechRecognitionService,
 ): void {
   if (!state.inputStarted || state.inputSampleRate === undefined) {
     sendError(
@@ -382,6 +485,9 @@ function handleInputAudioFrame(
 
   state.nextInputSequence += 1;
   state.totalInputSamples += frame.samples.length;
+  if (state.recognitionSessionId) {
+    speechRecognition?.acceptAudio(state.recognitionSessionId, frame.samples);
+  }
   sendEvent(webSocket, {
     type: "input.audio.ack",
     sequence: frame.sequence,
@@ -390,11 +496,259 @@ function handleInputAudioFrame(
   });
   if (frame.endOfStream) {
     state.inputStarted = false;
-    sendEvent(webSocket, {
-      type: "input.stopped",
-      totalSamples: state.totalInputSamples,
+    void finishRecognitionInput(webSocket, state, speechRecognition);
+  }
+}
+
+async function finishRecognitionInput(
+  webSocket: WebSocket,
+  state: ConnectionState,
+  speechRecognition?: SpeechRecognitionService,
+): Promise<void> {
+  const recognitionSessionId = state.recognitionSessionId;
+  try {
+    if (recognitionSessionId) {
+      await speechRecognition?.stop(recognitionSessionId);
+    }
+  } catch (error) {
+    sendError(
+      webSocket,
+      "RECOGNITION_STOP_FAILED",
+      error instanceof Error ? error.message : "Failed to stop recognition",
+      true,
+    );
+  }
+  sendEvent(webSocket, {
+    type: "input.stopped",
+    totalSamples: state.totalInputSamples,
+  });
+}
+
+function handleRecognitionEvent(
+  webSocket: WebSocket,
+  state: ConnectionState,
+  event: SpeechRecognitionEvent,
+  coachText?: CoachTextService,
+  speechSynthesis?: SpeechSynthesisService,
+): void {
+  if (event.type === "recognition.error") {
+    sendError(webSocket, event.code, event.message, event.recoverable);
+    return;
+  }
+  if (
+    event.type === "speech.started" &&
+    state.coachGenerationId !== undefined
+  ) {
+    cancelCoachResponse(webSocket, state, coachText, speechSynthesis);
+  }
+  sendEvent(webSocket, event);
+  if (
+    event.type === "transcript.final" &&
+    event.text.trim() &&
+    state.sessionId &&
+    coachText
+  ) {
+    if (state.coachGenerationId !== undefined)
+      cancelCoachResponse(webSocket, state, coachText, speechSynthesis);
+    const generationId = state.generationId;
+    state.coachGenerationId = generationId;
+    void coachText
+      .respond(state.sessionId, generationId, event.text, (coachEvent) =>
+        handleCoachTextEvent(webSocket, state, coachEvent, speechSynthesis),
+      )
+      .catch((error: unknown) =>
+        handleCoachTextEvent(
+          webSocket,
+          state,
+          {
+            type: "coach.error",
+            generationId,
+            code: "COACH_REQUEST_FAILED",
+            message:
+              error instanceof Error ? error.message : "本地教练回答失败",
+            recoverable: true,
+          },
+          speechSynthesis,
+        ),
+      );
+  }
+}
+
+function cancelCoachResponse(
+  webSocket: WebSocket,
+  state: ConnectionState,
+  coachText?: CoachTextService,
+  speechSynthesis?: SpeechSynthesisService,
+): void {
+  if (state.sessionId) coachText?.cancel(state.sessionId);
+  if (state.sessionId) speechSynthesis?.cancel(state.sessionId);
+  state.coachGenerationId = undefined;
+  resetTtsState(state);
+  state.generationId += 1;
+  sendEvent(webSocket, {
+    type: "turn.cancelled",
+    generationId: state.generationId,
+  });
+}
+
+function handleCoachTextEvent(
+  webSocket: WebSocket,
+  state: ConnectionState,
+  event: CoachTextEvent,
+  speechSynthesis?: SpeechSynthesisService,
+): void {
+  if (state.coachGenerationId !== event.generationId) return;
+  sendEvent(webSocket, event);
+  if (event.type === "coach.response.started") {
+    state.ttsGenerationId = event.generationId;
+    state.ttsBuffer = "";
+    state.ttsStarted = false;
+    state.ttsOutputSequence = 0;
+    state.ttsChain = Promise.resolve();
+  }
+  if (event.type === "coach.response.delta") {
+    const buffered = takeCompleteSentences(state.ttsBuffer + event.delta);
+    state.ttsBuffer = buffered.remainder;
+    for (const sentence of buffered.sentences) {
+      queueTtsSentence(webSocket, state, sentence, speechSynthesis);
+    }
+  }
+  if (event.type === "coach.response.completed") {
+    const remainder = cleanTextForSpeech(state.ttsBuffer);
+    state.ttsBuffer = "";
+    if (remainder)
+      queueTtsSentence(webSocket, state, remainder, speechSynthesis);
+    const generationId = event.generationId;
+    if (!speechSynthesis || !state.ttsStarted) {
+      resetTtsState(state);
+      state.coachGenerationId = undefined;
+      return;
+    }
+    void state.ttsChain.then(() => {
+      if (state.ttsGenerationId !== generationId) return;
+      sendOutputEndFrame(webSocket, state, generationId);
+      sendEvent(webSocket, { type: "tts.completed", generationId });
+      state.ttsGenerationId = undefined;
     });
   }
+  if (event.type === "coach.error") {
+    if (state.sessionId) speechSynthesis?.cancel(state.sessionId);
+    resetTtsState(state);
+  }
+  if (
+    event.type === "coach.response.completed" ||
+    event.type === "coach.error"
+  ) {
+    state.coachGenerationId = undefined;
+  }
+}
+
+function queueTtsSentence(
+  webSocket: WebSocket,
+  state: ConnectionState,
+  sentence: string,
+  speechSynthesis?: SpeechSynthesisService,
+): void {
+  const sessionId = state.sessionId;
+  const generationId = state.ttsGenerationId;
+  if (!sessionId || generationId === undefined || !speechSynthesis) return;
+  if (!state.ttsStarted) {
+    state.ttsStarted = true;
+    sendEvent(webSocket, { type: "tts.started", generationId });
+  }
+  state.ttsChain = state.ttsChain.then(async () => {
+    if (state.ttsGenerationId !== generationId) return;
+    try {
+      await speechSynthesis.synthesize(
+        sessionId,
+        generationId,
+        sentence,
+        ({ sampleRate, samples }) => {
+          if (state.ttsGenerationId !== generationId) return;
+          if (
+            !sendOutputAudio(
+              webSocket,
+              state,
+              generationId,
+              sampleRate,
+              samples,
+            )
+          ) {
+            speechSynthesis.cancel(sessionId);
+            state.ttsGenerationId = undefined;
+            sendEvent(webSocket, {
+              type: "tts.error",
+              generationId,
+              message: "语音发送积压，已停止当前回答",
+            });
+          }
+        },
+      );
+    } catch (error) {
+      if (state.ttsGenerationId !== generationId) return;
+      sendEvent(webSocket, {
+        type: "tts.error",
+        generationId,
+        message: error instanceof Error ? error.message : "本地语音合成失败",
+      });
+      state.ttsGenerationId = undefined;
+    }
+  });
+}
+
+function sendOutputAudio(
+  webSocket: WebSocket,
+  state: ConnectionState,
+  generationId: number,
+  sampleRate: number,
+  samples: Float32Array,
+): boolean {
+  for (
+    let offset = 0;
+    offset < samples.length;
+    offset += OUTPUT_AUDIO_FRAME_SAMPLES
+  ) {
+    if (webSocket.bufferedAmount > MAX_OUTPUT_BUFFERED_BYTES) return false;
+    sendBinary(
+      webSocket,
+      encodePcm16Frame({
+        kind: "output",
+        sequence: state.ttsOutputSequence,
+        generationId,
+        sampleRate,
+        samples: samples.subarray(offset, offset + OUTPUT_AUDIO_FRAME_SAMPLES),
+      }),
+    );
+    state.ttsOutputSequence += 1;
+  }
+  return true;
+}
+
+function sendOutputEndFrame(
+  webSocket: WebSocket,
+  state: ConnectionState,
+  generationId: number,
+): void {
+  sendBinary(
+    webSocket,
+    encodePcm16Frame({
+      kind: "output",
+      sequence: state.ttsOutputSequence,
+      generationId,
+      sampleRate: 16_000,
+      samples: new Float32Array(),
+      endOfStream: true,
+    }),
+  );
+  state.ttsOutputSequence += 1;
+}
+
+function resetTtsState(state: ConnectionState): void {
+  state.ttsGenerationId = undefined;
+  state.ttsBuffer = "";
+  state.ttsStarted = false;
+  state.ttsOutputSequence = 0;
+  state.ttsChain = Promise.resolve();
 }
 
 function isAllowedOrigin(
@@ -433,6 +787,10 @@ function removeExpiredSessions(
 function sendEvent(webSocket: WebSocket, event: VoiceServerControlEvent): void {
   if (webSocket.readyState === WebSocket.OPEN)
     webSocket.send(JSON.stringify(event));
+}
+
+function sendBinary(webSocket: WebSocket, data: ArrayBuffer): void {
+  if (webSocket.readyState === WebSocket.OPEN) webSocket.send(data);
 }
 
 function sendError(

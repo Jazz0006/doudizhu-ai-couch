@@ -1,3 +1,8 @@
+import {
+  deriveCoachGameEvents,
+  type CoachGameContextUpdate,
+  type PlayerVisibleGameState,
+} from "@ai-doudizhu/coach-protocol";
 import { decodePcm16Frame, encodePcm16Frame } from "@ai-doudizhu/shared-types";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -15,6 +20,18 @@ export interface VoiceAudioSnapshot {
   readonly message: string;
   readonly acknowledgedSeconds: number;
   readonly droppedFrames: number;
+  readonly partialTranscript: string;
+  readonly transcripts: readonly string[];
+  readonly partialCoachResponse: string;
+  readonly coachResponses: readonly string[];
+  readonly ttsPlaying: boolean;
+}
+
+export interface CoachHighlight {
+  readonly generationId: number;
+  readonly cardIds: readonly string[];
+  readonly reason: string;
+  readonly expiresInMs: number;
 }
 
 interface VoiceResources {
@@ -37,12 +54,26 @@ const INITIAL_SNAPSHOT: VoiceAudioSnapshot = {
   message: "本地语音未连接",
   acknowledgedSeconds: 0,
   droppedFrames: 0,
+  partialTranscript: "",
+  transcripts: [],
+  partialCoachResponse: "",
+  coachResponses: [],
+  ttsPlaying: false,
 };
 
-export function useVoiceAudioSession() {
+export function useVoiceAudioSession(
+  gameState?: PlayerVisibleGameState,
+  onHighlightChange?: (highlight: CoachHighlight | undefined) => void,
+) {
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
   const resourcesRef = useRef<VoiceResources | undefined>(undefined);
   const mountedRef = useRef(true);
+  const previousGameStateRef = useRef<PlayerVisibleGameState | undefined>(
+    undefined,
+  );
+  const gameContextRef = useRef<CoachGameContextUpdate | undefined>(undefined);
+  const onHighlightChangeRef = useRef(onHighlightChange);
+  onHighlightChangeRef.current = onHighlightChange;
 
   const updateSnapshot = useCallback(
     (update: (current: VoiceAudioSnapshot) => VoiceAudioSnapshot) => {
@@ -99,12 +130,28 @@ export function useVoiceAudioSession() {
       message: "正在请求麦克风并建立本地安全通道…",
       acknowledgedSeconds: 0,
       droppedFrames: 0,
+      partialTranscript: "",
+      transcripts: [],
+      partialCoachResponse: "",
+      coachResponses: [],
+      ttsPlaying: false,
     });
 
     let engine: BrowserAudioEngine | undefined;
     let webSocket: WebSocket | undefined;
     try {
-      engine = await BrowserAudioEngine.create(handleCapturedAudio);
+      engine = await BrowserAudioEngine.create(
+        handleCapturedAudio,
+        (generationId) => {
+          const resources = resourcesRef.current;
+          if (!resources || resources.generationId !== generationId) return;
+          updateSnapshot((current) => ({
+            ...current,
+            message: "本地教练语音播放完成",
+            ttsPlaying: false,
+          }));
+        },
+      );
       const sessionResponse = await fetch("/api/voice/session", {
         method: "POST",
       });
@@ -134,8 +181,13 @@ export function useVoiceAudioSession() {
         intentionalClose: false,
       };
       resourcesRef.current = resources;
+      if (gameContextRef.current) {
+        sendGameContext(webSocket, gameContextRef.current);
+      }
       webSocket.addEventListener("message", (event) => {
-        handleSocketMessage(event, resources, updateSnapshot);
+        handleSocketMessage(event, resources, updateSnapshot, (highlight) =>
+          onHighlightChangeRef.current?.(highlight),
+        );
       });
       webSocket.addEventListener("close", () => {
         if (resources.intentionalClose) return;
@@ -158,6 +210,11 @@ export function useVoiceAudioSession() {
         message: `麦克风已开启 · ${engine.sampleRate / 1000}kHz 本地 PCM`,
         acknowledgedSeconds: 0,
         droppedFrames: 0,
+        partialTranscript: "",
+        transcripts: [],
+        partialCoachResponse: "",
+        coachResponses: [],
+        ttsPlaying: false,
       });
     } catch (error) {
       if (webSocket && engine) {
@@ -180,6 +237,11 @@ export function useVoiceAudioSession() {
         message: describeVoiceError(error),
         acknowledgedSeconds: 0,
         droppedFrames: 0,
+        partialTranscript: "",
+        transcripts: [],
+        partialCoachResponse: "",
+        coachResponses: [],
+        ttsPlaying: false,
       });
     }
   }, [handleCapturedAudio, releaseResources, updateSnapshot]);
@@ -197,10 +259,18 @@ export function useVoiceAudioSession() {
     }));
     await resources.engine.stopCapture();
     if (resources.webSocket.readyState === WebSocket.OPEN) {
+      const inputStopped = waitForControlEvent(
+        resources.webSocket,
+        "input.stopped",
+      );
       resources.webSocket.send(JSON.stringify({ type: "input.stop" }));
-      resources.webSocket.send(JSON.stringify({ type: "session.close" }));
+      await inputStopped.catch(() => undefined);
+      if (resources.webSocket.readyState === WebSocket.OPEN) {
+        resources.webSocket.send(JSON.stringify({ type: "session.close" }));
+      }
     }
     await releaseResources(resources);
+    onHighlightChangeRef.current?.(undefined);
     if (mountedRef.current) setSnapshot(INITIAL_SNAPSHOT);
   }, [releaseResources, updateSnapshot]);
 
@@ -221,7 +291,23 @@ export function useVoiceAudioSession() {
         }),
       );
     }
-  }, []);
+  }, [updateSnapshot]);
+
+  useEffect(() => {
+    if (!gameState) return;
+    const previous = previousGameStateRef.current;
+    const update: CoachGameContextUpdate = {
+      revision: (gameContextRef.current?.revision ?? -1) + 1,
+      state: gameState,
+      events: deriveCoachGameEvents(previous, gameState),
+    };
+    previousGameStateRef.current = gameState;
+    gameContextRef.current = update;
+    const webSocket = resourcesRef.current?.webSocket;
+    if (webSocket?.readyState === WebSocket.OPEN) {
+      sendGameContext(webSocket, update);
+    }
+  }, [gameState]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -232,6 +318,13 @@ export function useVoiceAudioSession() {
   }, [releaseResources]);
 
   return { snapshot, start, stop, playTestTone, stopPlayback };
+}
+
+function sendGameContext(
+  webSocket: WebSocket,
+  update: CoachGameContextUpdate,
+): void {
+  webSocket.send(JSON.stringify({ type: "game.context", update }));
 }
 
 export function buildWebSocketUrl(
@@ -256,16 +349,21 @@ function handleSocketMessage(
   updateSnapshot: (
     update: (current: VoiceAudioSnapshot) => VoiceAudioSnapshot,
   ) => void,
+  onHighlightChange: (highlight: CoachHighlight | undefined) => void,
 ): void {
   if (event.data instanceof ArrayBuffer) {
     try {
       const frame = decodePcm16Frame(event.data);
       if (frame.kind === "output") {
-        resources.engine.enqueuePlayback(
-          frame.samples,
-          frame.sampleRate,
-          frame.generationId,
-        );
+        if (frame.endOfStream) {
+          resources.engine.finishPlayback(frame.generationId);
+        } else if (frame.samples.length > 0) {
+          resources.engine.enqueuePlayback(
+            frame.samples,
+            frame.sampleRate,
+            frame.generationId,
+          );
+        }
       }
     } catch {
       updateSnapshot((current) => ({
@@ -285,6 +383,173 @@ function handleSocketMessage(
       acknowledgedSeconds: totalSamples / resources.engine.sampleRate,
     }));
   }
+  if (message.type === "speech.started") {
+    updateSnapshot((current) => ({
+      ...current,
+      message: "检测到说话，正在识别…",
+      partialTranscript: "",
+    }));
+  }
+  if (
+    message.type === "transcript.partial" &&
+    typeof message.text === "string"
+  ) {
+    const text = message.text;
+    updateSnapshot((current) => ({
+      ...current,
+      message: "正在识别本地语音…",
+      partialTranscript: text,
+    }));
+  }
+  if (
+    message.type === "transcript.final" &&
+    typeof message.text === "string" &&
+    message.text.trim()
+  ) {
+    const text = message.text.trim();
+    updateSnapshot((current) => ({
+      ...current,
+      message: "已完成本地转写",
+      partialTranscript: "",
+      transcripts: [...current.transcripts, text].slice(-6),
+    }));
+  }
+  const coachGenerationId = message.generationId;
+  if (
+    message.type === "coach.response.started" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId
+  ) {
+    updateSnapshot((current) => ({
+      ...current,
+      message: "本地教练正在思考…",
+      partialCoachResponse: "",
+    }));
+  }
+  if (
+    message.type === "coach.tool.called" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId
+  ) {
+    updateSnapshot((current) => ({
+      ...current,
+      message:
+        message.name === "get_legal_actions"
+          ? "本地教练正在检查合法出牌…"
+          : message.name === "analyze_selected_cards"
+            ? "本地教练正在分析你选中的牌…"
+            : message.name === "highlight_cards"
+              ? "本地教练正在标出建议牌组…"
+              : "本地教练正在读取当前牌局…",
+    }));
+  }
+  if (
+    message.type === "coach.highlight.clear" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId
+  ) {
+    onHighlightChange(undefined);
+  }
+  if (
+    message.type === "coach.highlight" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId &&
+    isRecord(message.instruction)
+  ) {
+    const { cardIds, reason, expiresInMs } = message.instruction;
+    if (
+      Array.isArray(cardIds) &&
+      cardIds.every((cardId) => typeof cardId === "string") &&
+      typeof reason === "string" &&
+      typeof expiresInMs === "number"
+    ) {
+      onHighlightChange({
+        generationId: coachGenerationId,
+        cardIds,
+        reason,
+        expiresInMs,
+      });
+    }
+  }
+  if (
+    message.type === "coach.response.delta" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId &&
+    typeof message.delta === "string"
+  ) {
+    const delta = message.delta;
+    updateSnapshot((current) => ({
+      ...current,
+      message: "本地教练正在回答…",
+      partialCoachResponse: current.partialCoachResponse + delta,
+    }));
+  }
+  if (
+    message.type === "coach.response.completed" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId &&
+    typeof message.text === "string" &&
+    message.text.trim()
+  ) {
+    const text = message.text.trim();
+    updateSnapshot((current) => ({
+      ...current,
+      message: "本地教练回答完成",
+      partialCoachResponse: "",
+      coachResponses: [...current.coachResponses, text].slice(-6),
+    }));
+  }
+  if (
+    message.type === "coach.error" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId
+  ) {
+    updateSnapshot((current) => ({
+      ...current,
+      message:
+        typeof message.message === "string"
+          ? message.message
+          : "本地教练回答失败",
+      partialCoachResponse: "",
+    }));
+  }
+  if (
+    message.type === "tts.started" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId
+  ) {
+    updateSnapshot((current) => ({
+      ...current,
+      message: "正在生成本地教练语音…",
+      ttsPlaying: true,
+    }));
+  }
+  if (
+    message.type === "tts.completed" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId
+  ) {
+    updateSnapshot((current) => ({
+      ...current,
+      message: current.ttsPlaying
+        ? "本地教练语音正在播放…"
+        : "本地教练语音已完成",
+    }));
+  }
+  if (
+    message.type === "tts.error" &&
+    typeof coachGenerationId === "number" &&
+    coachGenerationId === resources.generationId
+  ) {
+    updateSnapshot((current) => ({
+      ...current,
+      message:
+        typeof message.message === "string"
+          ? message.message
+          : "本地语音合成失败",
+      ttsPlaying: false,
+    }));
+  }
   const error = message.error;
   if (message.type === "error" && isRecord(error)) {
     const errorMessage = error.message;
@@ -300,11 +565,18 @@ function handleSocketMessage(
     message.type === "turn.cancelled" &&
     typeof message.generationId === "number"
   ) {
+    onHighlightChange(undefined);
     resources.generationId = Math.max(
       resources.generationId,
       message.generationId,
     );
     resources.engine.flushPlayback(resources.generationId);
+    updateSnapshot((current) => ({
+      ...current,
+      message: "已打断当前回答",
+      partialCoachResponse: "",
+      ttsPlaying: false,
+    }));
   }
 }
 

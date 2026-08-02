@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resampleLinear } from "./resample";
+import { resampleLinear, StreamingLinearResampler } from "./resample";
 
 describe("resampleLinear", () => {
   it("returns an independent copy at the same sample rate", () => {
@@ -22,5 +22,26 @@ describe("resampleLinear", () => {
     expect(() => resampleLinear(new Float32Array(1), 0, 48_000)).toThrow(
       "Invalid source rate",
     );
+  });
+});
+
+describe("StreamingLinearResampler", () => {
+  it("preserves interpolation phase across input chunks", () => {
+    const input = Float32Array.from({ length: 40 }, (_, index) => index / 40);
+    const whole = resampleLinear(input, 44_100, 48_000);
+    const streaming = new StreamingLinearResampler(44_100, 48_000);
+    const first = streaming.process(input.slice(0, 17));
+    const second = streaming.process(input.slice(17));
+    const tail = streaming.flush();
+    const combined = [...first, ...second, ...tail];
+
+    expect(combined.length).toBeGreaterThanOrEqual(whole.length - 1);
+    for (
+      let index = 0;
+      index < Math.min(combined.length, whole.length);
+      index += 1
+    ) {
+      expect(combined[index]).toBeCloseTo(whole[index] ?? 0, 5);
+    }
   });
 });

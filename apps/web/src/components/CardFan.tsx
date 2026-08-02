@@ -8,6 +8,7 @@ import { PlayingCard } from "./PlayingCard";
 interface CardFanProps {
   readonly cards: readonly Card[];
   readonly selectedCardIds: readonly string[];
+  readonly highlightedCardIds?: readonly string[];
   readonly disabled: boolean;
   readonly onSelectionChange: (cardIds: readonly string[]) => void;
 }
@@ -27,10 +28,12 @@ const DRAG_THRESHOLD_PX = 7;
 export function CardFan({
   cards,
   selectedCardIds,
+  highlightedCardIds = [],
   disabled,
   onSelectionChange,
 }: CardFanProps) {
   const selected = new Set(selectedCardIds);
+  const highlighted = new Set(highlightedCardIds);
   const gesture = useRef<SelectionGesture | null>(null);
   const suppressClickUntil = useRef(0);
   const style = {
@@ -138,6 +141,7 @@ export function CardFan({
           card={card}
           cardIndex={index}
           selected={selected.has(card.id)}
+          highlighted={highlighted.has(card.id)}
           disabled={disabled}
           onClick={() => toggleCard(card.id)}
         />

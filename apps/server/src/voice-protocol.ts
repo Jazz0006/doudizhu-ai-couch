@@ -1,4 +1,7 @@
-export const VOICE_PROTOCOL_VERSION = 1 as const;
+import { parseCoachGameContextUpdate } from "@ai-doudizhu/coach-protocol";
+import type { CoachGameContextUpdate } from "@ai-doudizhu/coach-protocol";
+
+export const VOICE_PROTOCOL_VERSION = 2 as const;
 
 export interface SessionStartMessage {
   readonly type: "session.start";
@@ -30,13 +33,19 @@ export interface InputStopMessage {
   readonly type: "input.stop";
 }
 
+export interface GameContextMessage {
+  readonly type: "game.context";
+  readonly update: CoachGameContextUpdate;
+}
+
 export type VoiceClientControlMessage =
   | SessionStartMessage
   | TurnCancelMessage
   | SessionCloseMessage
   | PingMessage
   | InputStartMessage
-  | InputStopMessage;
+  | InputStopMessage
+  | GameContextMessage;
 
 export interface SessionReadyEvent {
   readonly type: "session.ready";
@@ -81,6 +90,88 @@ export interface InputStoppedEvent {
   readonly totalSamples: number;
 }
 
+export interface GameContextAcceptedEvent {
+  readonly type: "game.context.accepted";
+  readonly revision: number;
+  readonly gameId: string;
+}
+
+export interface SpeechStartedEvent {
+  readonly type: "speech.started" | "speech.ended";
+}
+
+export interface TranscriptEvent {
+  readonly type: "transcript.partial" | "transcript.final";
+  readonly text: string;
+  readonly rawText: string;
+}
+
+export interface CoachResponseStartedEvent {
+  readonly type: "coach.response.started";
+  readonly generationId: number;
+}
+
+export interface CoachToolCalledEvent {
+  readonly type: "coach.tool.called";
+  readonly generationId: number;
+  readonly name:
+    | "get_current_visible_state"
+    | "get_legal_actions"
+    | "analyze_selected_cards"
+    | "highlight_cards";
+}
+
+export interface CoachHighlightEvent {
+  readonly type: "coach.highlight";
+  readonly generationId: number;
+  readonly instruction: {
+    readonly cardIds: string[];
+    readonly reason: string;
+    readonly expiresInMs: number;
+  };
+}
+
+export interface CoachHighlightClearEvent {
+  readonly type: "coach.highlight.clear";
+  readonly generationId: number;
+}
+
+export interface CoachResponseDeltaEvent {
+  readonly type: "coach.response.delta";
+  readonly generationId: number;
+  readonly delta: string;
+}
+
+export interface CoachResponseCompletedEvent {
+  readonly type: "coach.response.completed";
+  readonly generationId: number;
+  readonly text: string;
+}
+
+export interface CoachErrorEvent {
+  readonly type: "coach.error";
+  readonly generationId: number;
+  readonly code: string;
+  readonly message: string;
+  readonly recoverable: boolean;
+}
+
+export interface TtsStartedEvent {
+  readonly type: "tts.started";
+  readonly generationId: number;
+}
+
+export interface TtsCompletedEvent {
+  readonly type: "tts.completed";
+  readonly generationId: number;
+}
+
+export interface TtsErrorEvent {
+  readonly type: "tts.error";
+  readonly generationId: number;
+  readonly message: string;
+}
+
 export type VoiceServerControlEvent =
   | SessionReadyEvent
   | TurnCancelledEvent
@@ -88,6 +179,19 @@ export type VoiceServerControlEvent =
   | InputReadyEvent
   | InputAudioAckEvent
   | InputStoppedEvent
+  | GameContextAcceptedEvent
+  | SpeechStartedEvent
+  | TranscriptEvent
+  | CoachResponseStartedEvent
+  | CoachToolCalledEvent
+  | CoachHighlightEvent
+  | CoachHighlightClearEvent
+  | CoachResponseDeltaEvent
+  | CoachResponseCompletedEvent
+  | CoachErrorEvent
+  | TtsStartedEvent
+  | TtsCompletedEvent
+  | TtsErrorEvent
   | VoiceErrorEvent;
 
 export function parseVoiceClientMessage(
@@ -142,6 +246,10 @@ export function parseVoiceClientMessage(
       return { type: "input.start", sampleRate: value.sampleRate };
     case "input.stop":
       return { type: "input.stop" };
+    case "game.context": {
+      const update = parseCoachGameContextUpdate(value.update);
+      return update ? { type: "game.context", update } : null;
+    }
     default:
       return null;
   }

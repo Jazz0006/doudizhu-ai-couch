@@ -8,7 +8,7 @@ describe("App", () => {
     const html = renderToStaticMarkup(<App />);
 
     expect(html).toContain("练牌桌");
-    expect(html).toContain("要叫地主吗");
+    expect(html).toContain("正在检查本地存档");
     expect(html).toContain("重新开局");
     expect(html).toContain("对手难度");
     expect(html).toContain("中等");

@@ -1,8 +1,19 @@
-import { useVoiceAudioSession } from "../audio/useVoiceAudioSession";
+import type { PlayerVisibleGameState } from "@ai-doudizhu/coach-protocol";
 
-export function VoiceControl() {
+import { useVoiceAudioSession } from "../audio/useVoiceAudioSession";
+import type { CoachHighlight } from "../audio/useVoiceAudioSession";
+
+export interface VoiceControlProps {
+  readonly gameState?: PlayerVisibleGameState;
+  readonly onHighlightChange?: (highlight: CoachHighlight | undefined) => void;
+}
+
+export function VoiceControl({
+  gameState,
+  onHighlightChange,
+}: VoiceControlProps = {}) {
   const { snapshot, start, stop, playTestTone, stopPlayback } =
-    useVoiceAudioSession();
+    useVoiceAudioSession(gameState, onHighlightChange);
   const active = snapshot.phase === "listening";
   const busy = snapshot.phase === "connecting" || snapshot.phase === "stopping";
 
@@ -47,9 +58,38 @@ export function VoiceControl() {
           测试声音
         </button>
         <button disabled={!active} onClick={stopPlayback} type="button">
-          停止播放
+          {snapshot.ttsPlaying ? "停止语音" : "打断回答"}
         </button>
       </div>
+
+      {(snapshot.transcripts.length > 0 || snapshot.partialTranscript) && (
+        <div className="voice-transcript" aria-live="polite">
+          <span className="voice-transcript-label">本地转写</span>
+          {snapshot.transcripts.map((transcript, index) => (
+            <p key={`${index}-${transcript}`}>{transcript}</p>
+          ))}
+          {snapshot.partialTranscript && (
+            <p className="voice-transcript-partial">
+              {snapshot.partialTranscript}
+            </p>
+          )}
+        </div>
+      )}
+
+      {(snapshot.coachResponses.length > 0 ||
+        snapshot.partialCoachResponse) && (
+        <div className="voice-transcript coach-response" aria-live="polite">
+          <span className="voice-transcript-label">本地教练</span>
+          {snapshot.coachResponses.map((response, index) => (
+            <p key={`${index}-${response}`}>{response}</p>
+          ))}
+          {snapshot.partialCoachResponse && (
+            <p className="voice-transcript-partial">
+              {snapshot.partialCoachResponse}
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }

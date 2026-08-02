@@ -15,12 +15,18 @@ import {
   isVoiceSessionRequest,
 } from "./voice-session.js";
 import type { VoiceSessionGateway } from "./voice-session.js";
+import type { SpeechRecognitionService } from "./speech-recognition.js";
+import type { CoachTextService } from "./coach-text.js";
+import type { SpeechSynthesisService } from "./speech-synthesis.js";
 
 export interface AppServerOptions {
   readonly now?: () => Date;
   readonly allowedOrigins?: readonly string[];
   readonly voiceSessionTtlMs?: number;
   readonly tls?: Pick<HttpsServerOptions, "cert" | "key">;
+  readonly speechRecognition?: SpeechRecognitionService;
+  readonly coachText?: CoachTextService;
+  readonly speechSynthesis?: SpeechSynthesisService;
 }
 
 export interface ListenOptions {
@@ -56,6 +62,13 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
       : {}),
     ...(options.voiceSessionTtlMs
       ? { sessionTtlMs: options.voiceSessionTtlMs }
+      : {}),
+    ...(options.speechRecognition
+      ? { speechRecognition: options.speechRecognition }
+      : {}),
+    ...(options.coachText ? { coachText: options.coachText } : {}),
+    ...(options.speechSynthesis
+      ? { speechSynthesis: options.speechSynthesis }
       : {}),
   });
   voiceGateways.set(server, voiceGateway);
@@ -103,7 +116,7 @@ export async function listenForHttp(
 }
 
 export async function stopHttpServer(server: AppServer): Promise<void> {
-  voiceGateways.get(server)?.close();
+  await voiceGateways.get(server)?.close();
   voiceGateways.delete(server);
   if (!server.listening) return;
 

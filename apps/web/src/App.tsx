@@ -1,18 +1,28 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import {
+  createGameReview,
+  getPlayerVisibleState,
+} from "@ai-doudizhu/coach-protocol";
 
 import { ActionBar } from "./components/ActionBar";
 import { BiddingPanel } from "./components/BiddingPanel";
 import { CardFan } from "./components/CardFan";
 import { DifficultySelector } from "./components/DifficultySelector";
 import { GameTable } from "./components/GameTable";
+import { GameReviewPanel } from "./components/GameReviewPanel";
 import { SeatPlayArea } from "./components/SeatPlayArea";
 import { VoiceControl } from "./components/VoiceControl";
+import type { CoachHighlight } from "./audio/useVoiceAudioSession";
 import { getCurrentTrickActions } from "./game/currentTrick";
 import { useGameController } from "./game/useGameController";
 import "./styles.css";
 
 export function App() {
   const game = useGameController();
+  const [coachHighlight, setCoachHighlight] = useState<
+    CoachHighlight | undefined
+  >(undefined);
   const selectedPlay = useMemo(
     () => game.recognizeSelection(),
     [game.selectedCardIds, game.recognizeSelection],
@@ -21,6 +31,40 @@ export function App() {
     () => getCurrentTrickActions(game.state.history),
     [game.state.history],
   );
+  const visibleGameState = useMemo(
+    () =>
+      getPlayerVisibleState(game.state, "user", {
+        selectedCardIds: game.selectedCardIds,
+      }),
+    [game.selectedCardIds, game.state],
+  );
+  const highlightedCardIds = useMemo(() => {
+    const handIds = new Set(game.state.hands.user.map(({ id }) => id));
+    return (coachHighlight?.cardIds ?? []).filter((id) => handIds.has(id));
+  }, [coachHighlight, game.state.hands.user]);
+  const review = useMemo(
+    () =>
+      game.state.phase === "finished"
+        ? createGameReview(game.state)
+        : undefined,
+    [game.state],
+  );
+  const clearCoachHighlight = useCallback(() => {
+    setCoachHighlight(undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!coachHighlight) return;
+    const timer = window.setTimeout(
+      clearCoachHighlight,
+      coachHighlight.expiresInMs,
+    );
+    return () => window.clearTimeout(timer);
+  }, [clearCoachHighlight, coachHighlight]);
+
+  useEffect(() => {
+    clearCoachHighlight();
+  }, [clearCoachHighlight, game.state.gameId]);
 
   return (
     <main className="app-shell">
@@ -32,16 +76,24 @@ export function App() {
         <div className="topbar-actions">
           <DifficultySelector
             value={game.difficulty}
-            disabled={game.botThinking}
+            disabled={!game.ready || game.botThinking}
             onChange={game.changeDifficulty}
           />
-          <button className="quiet-button" onClick={game.restart} type="button">
+          <button
+            className="quiet-button"
+            disabled={!game.ready}
+            onClick={game.restart}
+            type="button"
+          >
             重新开局
           </button>
         </div>
       </header>
 
-      <VoiceControl />
+      <VoiceControl
+        gameState={visibleGameState}
+        onHighlightChange={setCoachHighlight}
+      />
 
       <section className="game-frame" aria-label="斗地主牌桌">
         <GameTable
@@ -51,7 +103,14 @@ export function App() {
           rightAction={currentActions.right}
         />
 
-        <div className="player-zone">
+        <div
+          className="player-zone"
+          onClick={(event) => {
+            if (!(event.target as HTMLElement).closest("button, select")) {
+              clearCoachHighlight();
+            }
+          }}
+        >
           <div className="player-meta">
             <div>
               <span className="player-label">你</span>
@@ -95,9 +154,19 @@ export function App() {
             {game.notice}
           </p>
 
+          {coachHighlight && highlightedCardIds.length > 0 && (
+            <div className="coach-highlight-notice" aria-live="polite">
+              <span>{coachHighlight.reason}</span>
+              <button type="button" onClick={clearCoachHighlight}>
+                清除高亮
+              </button>
+            </div>
+          )}
+
           <CardFan
             cards={game.state.hands.user}
             disabled={!game.canUserPlay}
+            highlightedCardIds={highlightedCardIds}
             selectedCardIds={game.selectedCardIds}
             onSelectionChange={game.changeSelection}
           />
@@ -108,22 +177,9 @@ export function App() {
           横屏看牌更清楚
         </aside>
 
-        {game.state.phase === "finished" && (
+        {review && (
           <div className="result-overlay" role="dialog" aria-modal="true">
-            <div className="result-card">
-              <p className="eyebrow">本局结束</p>
-              <h2>
-                {game.state.winner === "landlord" ? "地主获胜" : "农民获胜"}
-              </h2>
-              <p>共进行了 {game.state.history.length} 次出牌或过牌。</p>
-              <button
-                className="primary-button"
-                onClick={game.restart}
-                type="button"
-              >
-                再来一局
-              </button>
-            </div>
+            <GameReviewPanel review={review} onRestart={game.restart} />
           </div>
         )}
       </section>

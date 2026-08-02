@@ -1,4 +1,4 @@
-import { resampleLinear } from "./resample";
+import { StreamingLinearResampler } from "./resample";
 
 const CAPTURE_WORKLET_URL = "/audio-capture-worklet.js";
 const PLAYBACK_WORKLET_URL = "/audio-playback-worklet.js";
@@ -9,12 +9,14 @@ export interface CapturedAudioChunk {
 }
 
 export type CapturedAudioHandler = (chunk: CapturedAudioChunk) => void;
+export type PlaybackDrainedHandler = (generationId: number) => void;
 
 export class BrowserAudioEngine {
   readonly sampleRate: number;
 
   private captureEnabled = false;
   private generationId = 0;
+  private playbackResampler: StreamingLinearResampler | undefined;
   private readonly stopWaiters = new Set<() => void>();
 
   private constructor(
@@ -24,6 +26,7 @@ export class BrowserAudioEngine {
     private readonly captureNode: AudioWorkletNode,
     private readonly playbackNode: AudioWorkletNode,
     onCapturedAudio: CapturedAudioHandler,
+    onPlaybackDrained: PlaybackDrainedHandler,
   ) {
     this.sampleRate = context.sampleRate;
     this.captureNode.port.onmessage = ({ data }: MessageEvent<unknown>) => {
@@ -36,10 +39,20 @@ export class BrowserAudioEngine {
         this.stopWaiters.clear();
       }
     };
+    this.playbackNode.port.onmessage = ({ data }: MessageEvent<unknown>) => {
+      if (
+        isRecord(data) &&
+        data.type === "drained" &&
+        typeof data.generationId === "number"
+      ) {
+        onPlaybackDrained(data.generationId);
+      }
+    };
   }
 
   static async create(
     onCapturedAudio: CapturedAudioHandler,
+    onPlaybackDrained: PlaybackDrainedHandler = () => undefined,
   ): Promise<BrowserAudioEngine> {
     if (!window.isSecureContext) {
       throw new Error("手机麦克风需要 HTTPS 安全连接");
@@ -85,6 +98,7 @@ export class BrowserAudioEngine {
         captureNode,
         playbackNode,
         onCapturedAudio,
+        onPlaybackDrained,
       );
     } catch (error) {
       for (const track of mediaStream?.getTracks() ?? []) track.stop();
@@ -116,19 +130,37 @@ export class BrowserAudioEngine {
     generationId: number,
   ): void {
     if (generationId !== this.generationId) return;
-    const converted = resampleLinear(
-      samples,
-      sourceSampleRate,
-      this.sampleRate,
-    );
+    if (
+      !this.playbackResampler ||
+      this.playbackResampler.sourceRate !== sourceSampleRate
+    ) {
+      this.playbackResampler = new StreamingLinearResampler(
+        sourceSampleRate,
+        this.sampleRate,
+      );
+    }
+    const converted = this.playbackResampler.process(samples);
+    this.postPlayback(converted, generationId);
+  }
+
+  finishPlayback(generationId: number): void {
+    if (generationId !== this.generationId || !this.playbackResampler) return;
+    const tail = this.playbackResampler.flush();
+    this.playbackResampler = undefined;
+    this.postPlayback(tail, generationId);
+  }
+
+  private postPlayback(samples: Float32Array, generationId: number): void {
+    if (samples.length === 0) return;
     this.playbackNode.port.postMessage(
-      { type: "enqueue", generationId, samples: converted },
-      [converted.buffer],
+      { type: "enqueue", generationId, samples },
+      [samples.buffer],
     );
   }
 
   flushPlayback(generationId = this.generationId + 1): void {
     this.generationId = generationId;
+    this.playbackResampler = undefined;
     this.playbackNode.port.postMessage({ type: "flush", generationId });
   }
 

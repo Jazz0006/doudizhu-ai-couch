@@ -1,6 +1,6 @@
 # AI 斗地主实时语音教练
 
-本仓库是 AI 斗地主实时语音教练的 npm workspaces monorepo。目前已完成开发规格中的 Task 1 至 Task 11，并正在实施 Task 12：已具备本地 HTTPS/WSS 会话、浏览器 AudioWorklet 采集/播放和带序号确认的双向 PCM16 通道。
+本仓库是 AI 斗地主实时语音教练的 npm workspaces monorepo。目前已完成开发规格中的 Task 1 至 Task 15：已具备本地 HTTPS/WSS 实时语音闭环、严格脱敏的牌局工具、选牌分析与安全高亮，以及基于 IndexedDB 的恢复和规则驱动复盘。
 
 ## 环境要求
 
@@ -10,10 +10,10 @@
 ## 工作区
 
 - `apps/web`：React + Vite Web 应用骨架
-- `apps/server`：可运行的 Node.js HTTP 后端与 `/health` 健康检查
+- `apps/server`：Node.js HTTPS/WSS 后端、`/health` 健康检查与本地语音识别 worker
 - `packages/game-core`：扑克牌模型、牌组、可复现洗牌、发牌、排序与牌型识别
 - `packages/bot-engine`：只读取单个玩家可见信息的三档传统电脑玩家与自动对局模拟器
-- `packages/coach-protocol`：生成 `PlayerVisibleGameState`，隔离隐藏手牌并提供公开合法动作
+- `packages/coach-protocol`：生成并校验 `PlayerVisibleGameState`，派生公开牌局事件，隔离隐藏手牌并提供公开合法动作
 - `packages/shared-types`：前后端共享的二进制 PCM 音频帧协议与类型
 
 ## 常用命令
@@ -58,3 +58,11 @@ npm run start --workspace @ai-doudizhu/server
 可通过 `HOST` 和 `PORT` 环境变量修改监听地址。启动后访问 `http://localhost:3000/health`，应获得包含 `ok: true` 和当前 ISO 时间的 JSON。
 
 本地语音开发需要先生成 HTTPS 证书，完整步骤和真机验证方法见 [docs/local-voice.md](docs/local-voice.md)。
+
+模型安装后可运行真实 ASR、牌局教练和 TTS 冒烟测试：
+
+```powershell
+npm run voice:smoke:asr
+npm run voice:smoke:coach
+npm run voice:smoke:tts
+```
