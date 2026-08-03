@@ -9,8 +9,16 @@ export { readServerConfig } from "./server-config.js";
 export { createLocalSpeechRecognitionService } from "./local-speech-recognition.js";
 export { createUnavailableSpeechRecognitionService } from "./speech-recognition.js";
 export { createOllamaCoachService } from "./ollama-coach.js";
+export type { CoachDiagnosticEvent } from "./ollama-coach.js";
+export { assessCoachResponseQuality } from "./coach-quality.js";
+export type { CoachResponseQuality } from "./coach-quality.js";
 export { createUnavailableCoachTextService } from "./coach-text.js";
-export type { CoachTextEvent, CoachTextService } from "./coach-text.js";
+export type {
+  CoachContextUpdateResult,
+  CoachResponseContext,
+  CoachTextEvent,
+  CoachTextService,
+} from "./coach-text.js";
 export { createLocalSpeechSynthesisService } from "./local-speech-synthesis.js";
 export { createUnavailableSpeechSynthesisService } from "./speech-synthesis.js";
 export type {

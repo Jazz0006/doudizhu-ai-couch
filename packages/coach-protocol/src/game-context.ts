@@ -15,6 +15,11 @@ import type {
 } from "@ai-doudizhu/game-core";
 
 import type { PlayerVisibleGameState } from "./visible-state.js";
+import {
+  createCoachStateSummary,
+  createVisibleStateChecksum,
+} from "./state-summary.js";
+import type { CoachStateSummary } from "./state-summary.js";
 
 export type CoachGameEvent =
   | { readonly type: "game_started"; readonly gameId: string }
@@ -33,8 +38,29 @@ export type CoachGameEvent =
 
 export interface CoachGameContextUpdate {
   readonly revision: number;
+  readonly actionIndex: number;
+  readonly stateChecksum: string;
+  readonly generatedAt: string;
   readonly state: PlayerVisibleGameState;
+  readonly summary: CoachStateSummary;
   readonly events: CoachGameEvent[];
+}
+
+export function createCoachGameContextUpdate(
+  state: PlayerVisibleGameState,
+  revision: number,
+  events: readonly CoachGameEvent[],
+  generatedAt = new Date().toISOString(),
+): CoachGameContextUpdate {
+  return {
+    revision,
+    actionIndex: state.publicHistory.length,
+    stateChecksum: createVisibleStateChecksum(state),
+    generatedAt,
+    state,
+    summary: createCoachStateSummary(state),
+    events: [...events],
+  };
 }
 
 export function deriveCoachGameEvents(
@@ -84,7 +110,16 @@ export function deriveCoachGameEvents(
 export function parseCoachGameContextUpdate(
   value: unknown,
 ): CoachGameContextUpdate | null {
-  if (!isRecord(value) || !isNonNegativeInteger(value.revision)) return null;
+  if (
+    !isRecord(value) ||
+    !isNonNegativeInteger(value.revision) ||
+    !isNonNegativeInteger(value.actionIndex) ||
+    typeof value.stateChecksum !== "string" ||
+    typeof value.generatedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.generatedAt))
+  ) {
+    return null;
+  }
   const state = parsePlayerVisibleGameState(value.state);
   if (!state || state.userSeat !== "user" || !Array.isArray(value.events)) {
     return null;
@@ -95,11 +130,20 @@ export function parseCoachGameContextUpdate(
   ) {
     return null;
   }
-  return {
-    revision: value.revision,
+  const expected = createCoachGameContextUpdate(
     state,
-    events: events as CoachGameEvent[],
-  };
+    value.revision,
+    events as CoachGameEvent[],
+    value.generatedAt,
+  );
+  if (
+    value.actionIndex !== expected.actionIndex ||
+    value.stateChecksum !== expected.stateChecksum ||
+    JSON.stringify(value.summary) !== JSON.stringify(expected.summary)
+  ) {
+    return null;
+  }
+  return expected;
 }
 
 function isEventConsistent(

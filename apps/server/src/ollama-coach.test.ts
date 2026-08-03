@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { getPlayerVisibleState } from "@ai-doudizhu/coach-protocol";
+import {
+  createCoachGameContextUpdate,
+  getPlayerVisibleState,
+} from "@ai-doudizhu/coach-protocol";
 import { createGame, submitBid } from "@ai-doudizhu/game-core";
 
 import {
@@ -24,6 +27,76 @@ describe("normalizeLocalOllamaUrl", () => {
 });
 
 describe("Ollama coach", () => {
+  it("applies the selected personality prompt and generation profile", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const diagnostics: unknown[] = [];
+    const fetchImplementation = vi.fn(async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return ndjsonResponse(["先别出王。右家只剩两张，留王更容易抢回牌权。"]);
+    }) as unknown as typeof fetch;
+    const coach = createOllamaCoachService({
+      fetchImplementation,
+      onDiagnostic: (event) => diagnostics.push(event),
+    });
+    coach.updateStyle("styled-session", "warm");
+
+    await coach.respond("styled-session", 0, "现在怎么出？", () => undefined);
+
+    const messages = bodies[0]?.messages as OllamaMessageForTest[];
+    expect(messages[0]?.content).toContain("当前风格是陪练型");
+    expect(messages[0]?.content).toContain("禁止没有新增信息的套话");
+    expect(bodies[0]?.options).toMatchObject({
+      temperature: 0.3,
+      top_p: 0.85,
+      repeat_penalty: 1.12,
+      num_predict: 190,
+    });
+    expect(diagnostics[0]).toMatchObject({
+      style: "warm",
+      promptVersion: "coach-personality-v1",
+      quality: { fillerMatches: [], withinStyleLimit: true },
+    });
+    await coach.close();
+  });
+
+  it("rejects stale or conflicting context revisions and accepts idempotent retransmission", async () => {
+    const fullState = submitBid(
+      createGame({ gameId: "revision-game", randomSeed: "revision-game" }),
+      "user",
+      3,
+    );
+    const coach = createOllamaCoachService({
+      fetchImplementation: vi.fn() as unknown as typeof fetch,
+    });
+    const first = createCoachGameContextUpdate(
+      getPlayerVisibleState(fullState, "user"),
+      2,
+      [],
+    );
+
+    expect(coach.updateGameContext("revision-session", first).status).toBe(
+      "accepted",
+    );
+    expect(coach.updateGameContext("revision-session", first).status).toBe(
+      "idempotent",
+    );
+    expect(
+      coach.updateGameContext("revision-session", { ...first, revision: 1 })
+        .status,
+    ).toBe("stale");
+    const conflicting = createCoachGameContextUpdate(
+      getPlayerVisibleState(fullState, "user", {
+        selectedCardIds: [fullState.hands.user[0]!.id],
+      }),
+      2,
+      [],
+    );
+    expect(
+      coach.updateGameContext("revision-session", conflicting).status,
+    ).toBe("conflict");
+    await coach.close();
+  });
+
   it("streams concise text and retains bounded conversation context", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const fetchImplementation = vi.fn(async (_url, init) => {
@@ -74,17 +147,20 @@ describe("Ollama coach", () => {
       "2026-08-02T00:00:00.000Z",
     );
     const coach = createOllamaCoachService({ fetchImplementation });
-    coach.updateGameContext("session", {
-      revision: 2,
-      state: getPlayerVisibleState(fullState, "user"),
-      events: [
-        {
-          type: "landlord_selected",
-          seat: "user",
-          bottomCards: fullState.bottomCards,
-        },
-      ],
-    });
+    coach.updateGameContext(
+      "session",
+      createCoachGameContextUpdate(
+        getPlayerVisibleState(fullState, "user"),
+        2,
+        [
+          {
+            type: "landlord_selected",
+            seat: "user",
+            bottomCards: fullState.bottomCards,
+          },
+        ],
+      ),
+    );
     const events: CoachTextEvent[] = [];
 
     await coach.respond("session", 5, "现在该出什么牌？", (event) =>
@@ -109,6 +185,11 @@ describe("Ollama coach", () => {
       type: "coach.response.completed",
       generationId: 5,
       text: "现在你是地主，可以先从小牌试探。",
+      context: {
+        gameId: "tool-game",
+        revision: 2,
+        actionIndex: 0,
+      },
     });
     expect(events).toContainEqual({
       type: "coach.tool.called",
@@ -158,13 +239,16 @@ describe("Ollama coach", () => {
     );
     const selectedIds = [fullState.hands.user[0]!.id];
     const coach = createOllamaCoachService({ fetchImplementation });
-    coach.updateGameContext("selection-session", {
-      revision: 1,
-      state: getPlayerVisibleState(fullState, "user", {
-        selectedCardIds: selectedIds,
-      }),
-      events: [],
-    });
+    coach.updateGameContext(
+      "selection-session",
+      createCoachGameContextUpdate(
+        getPlayerVisibleState(fullState, "user", {
+          selectedCardIds: selectedIds,
+        }),
+        1,
+        [],
+      ),
+    );
     const events: CoachTextEvent[] = [];
 
     await coach.respond("selection-session", 2, "我这样出可以吗？", (event) =>
@@ -184,6 +268,77 @@ describe("Ollama coach", () => {
         reason: "正在分析你选中的牌",
         expiresInMs: 8_000,
       },
+    });
+    await coach.close();
+  });
+
+  it("answers explicit legality questions from the rule engine without model generation", async () => {
+    const fetchImplementation = vi.fn() as unknown as typeof fetch;
+    const fullState = submitBid(
+      createGame({ gameId: "strict-legality", randomSeed: "strict-legality" }),
+      "user",
+      3,
+    );
+    const selectedIds = [fullState.hands.user[0]!.id];
+    const coach = createOllamaCoachService({ fetchImplementation });
+    coach.updateGameContext(
+      "strict-legality-session",
+      createCoachGameContextUpdate(
+        getPlayerVisibleState(fullState, "user", {
+          selectedCardIds: selectedIds,
+        }),
+        1,
+        [],
+      ),
+    );
+    const events: CoachTextEvent[] = [];
+
+    await coach.respond(
+      "strict-legality-session",
+      3,
+      "我当前选中的这组牌是否合法？",
+      (event) => events.push(event),
+    );
+
+    expect(fetchImplementation).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "coach.response.delta",
+      generationId: 3,
+      delta: "可以。这组牌符合当前出牌规则。",
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "coach.response.completed",
+      text: "可以。这组牌符合当前出牌规则。",
+    });
+    await coach.close();
+  });
+
+  it("answers whose turn it is directly from visible state", async () => {
+    const fetchImplementation = vi.fn() as unknown as typeof fetch;
+    const fullState = submitBid(
+      createGame({ gameId: "turn-fact", randomSeed: "turn-fact" }),
+      "user",
+      3,
+    );
+    const coach = createOllamaCoachService({ fetchImplementation });
+    coach.updateGameContext(
+      "turn-fact-session",
+      createCoachGameContextUpdate(
+        getPlayerVisibleState(fullState, "user"),
+        0,
+        [],
+      ),
+    );
+    const events: CoachTextEvent[] = [];
+
+    await coach.respond("turn-fact-session", 4, "现在轮到谁？", (event) =>
+      events.push(event),
+    );
+
+    expect(fetchImplementation).not.toHaveBeenCalled();
+    expect(events.at(-1)).toMatchObject({
+      type: "coach.response.completed",
+      text: "轮到你。",
     });
     await coach.close();
   });

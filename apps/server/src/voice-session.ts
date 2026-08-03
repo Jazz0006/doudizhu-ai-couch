@@ -401,7 +401,23 @@ function handleSocketMessage(options: HandleSocketMessageOptions): void {
       state.inputStarted = false;
       void finishRecognitionInput(webSocket, state, speechRecognition);
       break;
-    case "game.context":
+    case "coach.settings":
+      if (!state.sessionId || !coachText) {
+        sendError(
+          webSocket,
+          "COACH_UNAVAILABLE",
+          "Coach settings require an available coach service",
+          true,
+        );
+        break;
+      }
+      coachText.updateStyle(state.sessionId, message.style);
+      sendEvent(webSocket, {
+        type: "coach.settings.accepted",
+        style: message.style,
+      });
+      break;
+    case "game.context": {
       if (!state.sessionId || !coachText) {
         sendError(
           webSocket,
@@ -411,13 +427,33 @@ function handleSocketMessage(options: HandleSocketMessageOptions): void {
         );
         break;
       }
-      coachText.updateGameContext(state.sessionId, message.update);
+      const contextResult = coachText.updateGameContext(
+        state.sessionId,
+        message.update,
+      );
+      if (
+        contextResult.status === "stale" ||
+        contextResult.status === "conflict"
+      ) {
+        sendEvent(webSocket, {
+          type: "game.context.rejected",
+          reason: contextResult.status,
+          revision: contextResult.revision,
+          gameId: contextResult.gameId,
+          stateChecksum: contextResult.stateChecksum,
+        });
+        break;
+      }
       sendEvent(webSocket, {
         type: "game.context.accepted",
-        revision: message.update.revision,
-        gameId: message.update.state.gameId,
+        status: contextResult.status,
+        revision: contextResult.revision,
+        actionIndex: message.update.actionIndex,
+        gameId: contextResult.gameId,
+        stateChecksum: contextResult.stateChecksum,
       });
       break;
+    }
     case "session.close":
       webSocket.close(1000, "Session closed");
       break;

@@ -1,10 +1,15 @@
 import type {
   CoachGameContextUpdate,
+  CoachStyle,
   HighlightInstruction,
 } from "@ai-doudizhu/coach-protocol";
 
 export type CoachTextEvent =
-  | { readonly type: "coach.response.started"; readonly generationId: number }
+  | {
+      readonly type: "coach.response.started";
+      readonly generationId: number;
+      readonly context?: CoachResponseContext;
+    }
   | {
       readonly type: "coach.tool.called";
       readonly generationId: number;
@@ -32,6 +37,7 @@ export type CoachTextEvent =
       readonly type: "coach.response.completed";
       readonly generationId: number;
       readonly text: string;
+      readonly context?: CoachResponseContext;
     }
   | {
       readonly type: "coach.error";
@@ -41,9 +47,35 @@ export type CoachTextEvent =
       readonly recoverable: boolean;
     };
 
+export interface CoachResponseContext {
+  readonly gameId: string;
+  readonly revision: number;
+  readonly actionIndex: number;
+  readonly stateChecksum: string;
+}
+
+export type CoachContextUpdateResult =
+  | {
+      readonly status: "accepted" | "idempotent";
+      readonly gameId: string;
+      readonly revision: number;
+      readonly actionIndex: number;
+      readonly stateChecksum: string;
+    }
+  | {
+      readonly status: "stale" | "conflict";
+      readonly gameId: string;
+      readonly revision: number;
+      readonly stateChecksum: string;
+    };
+
 export interface CoachTextService {
   warmup(): Promise<void>;
-  updateGameContext(sessionId: string, update: CoachGameContextUpdate): void;
+  updateStyle(sessionId: string, style: CoachStyle): void;
+  updateGameContext(
+    sessionId: string,
+    update: CoachGameContextUpdate,
+  ): CoachContextUpdateResult;
   respond(
     sessionId: string,
     generationId: number,
@@ -60,7 +92,16 @@ export function createUnavailableCoachTextService(
 ): CoachTextService {
   return {
     async warmup() {},
-    updateGameContext() {},
+    updateStyle() {},
+    updateGameContext(_sessionId, update) {
+      return {
+        status: "accepted",
+        gameId: update.state.gameId,
+        revision: update.revision,
+        actionIndex: update.actionIndex,
+        stateChecksum: update.stateChecksum,
+      };
+    },
     async respond(_sessionId, generationId, _userText, onEvent) {
       onEvent({
         type: "coach.error",

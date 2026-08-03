@@ -28,7 +28,10 @@
     "voice:probe:runtime": "node scripts/voice/probe-runtime.cjs",
     "voice:probe:asr": "node scripts/voice/probe-asr.cjs",
     "voice:probe:tts": "node scripts/voice/probe-tts.cjs",
-    "voice:benchmark:ollama": "node scripts/voice/benchmark-ollama.mjs"
+    "voice:benchmark:ollama": "node scripts/voice/benchmark-ollama.mjs",
+    "coach:evaluate:state": "npm run build --workspace @ai-doudizhu/server && node scripts/voice/evaluate-coach.mjs",
+    "coach:evaluate": "npm run build --workspace @ai-doudizhu/server && node scripts/voice/evaluate-coach.mjs --live",
+    "coach:evaluate:style": "npm run build --workspace @ai-doudizhu/server && node scripts/voice/evaluate-coach-style.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

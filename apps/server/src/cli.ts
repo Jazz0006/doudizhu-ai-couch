@@ -90,6 +90,11 @@ async function createCoachFromEnvironment() {
         : {}),
       numCtx: Number(process.env.OLLAMA_NUM_CTX ?? 4096),
       timeoutMs: Number(process.env.OLLAMA_TIMEOUT_MS ?? 45_000),
+      onDiagnostic: (event) => {
+        process.stdout.write(
+          `${JSON.stringify({ type: "coach.diagnostic", ...event })}\n`,
+        );
+      },
     });
     await coach.warmup();
     return coach;

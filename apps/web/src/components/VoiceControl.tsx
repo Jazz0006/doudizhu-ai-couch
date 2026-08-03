@@ -1,4 +1,10 @@
 import type { PlayerVisibleGameState } from "@ai-doudizhu/coach-protocol";
+import {
+  DEFAULT_COACH_STYLE,
+  parseCoachStyle,
+  type CoachStyle,
+} from "@ai-doudizhu/coach-protocol";
+import { useEffect, useState } from "react";
 
 import { useVoiceAudioSession } from "../audio/useVoiceAudioSession";
 import type { CoachHighlight } from "../audio/useVoiceAudioSession";
@@ -12,10 +18,19 @@ export function VoiceControl({
   gameState,
   onHighlightChange,
 }: VoiceControlProps = {}) {
+  const [coachStyle, setCoachStyle] = useState<CoachStyle>(loadCoachStyle);
   const { snapshot, start, stop, playTestTone, stopPlayback } =
-    useVoiceAudioSession(gameState, onHighlightChange);
+    useVoiceAudioSession(gameState, onHighlightChange, coachStyle);
   const active = snapshot.phase === "listening";
   const busy = snapshot.phase === "connecting" || snapshot.phase === "stopping";
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("ai-doudizhu-coach-style", coachStyle);
+    } catch {
+      // The active session still keeps the selected style if storage is blocked.
+    }
+  }, [coachStyle]);
 
   return (
     <section className={`voice-control voice-control-${snapshot.phase}`}>
@@ -36,6 +51,21 @@ export function VoiceControl({
       </div>
 
       <div className="voice-actions">
+        <label className="difficulty-selector">
+          <span>教练</span>
+          <select
+            aria-label="教练性格"
+            value={coachStyle}
+            disabled={busy}
+            onChange={(event) =>
+              setCoachStyle(event.target.value as CoachStyle)
+            }
+          >
+            <option value="direct">直接型</option>
+            <option value="warm">陪练型</option>
+            <option value="analytical">分析型</option>
+          </select>
+        </label>
         {active ? (
           <button
             className="voice-stop-button"
@@ -100,4 +130,16 @@ function voiceTitle(phase: string): string {
   if (phase === "stopping") return "正在停止";
   if (phase === "error") return "语音连接需要处理";
   return "完整本地语音";
+}
+
+function loadCoachStyle(): CoachStyle {
+  if (typeof window === "undefined") return DEFAULT_COACH_STYLE;
+  try {
+    return (
+      parseCoachStyle(window.localStorage.getItem("ai-doudizhu-coach-style")) ??
+      DEFAULT_COACH_STYLE
+    );
+  } catch {
+    return DEFAULT_COACH_STYLE;
+  }
 }

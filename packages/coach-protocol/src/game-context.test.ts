@@ -4,6 +4,8 @@ import { createGame, playCards, submitBid } from "@ai-doudizhu/game-core";
 import type { Card } from "@ai-doudizhu/game-core";
 
 import {
+  createCoachGameContextUpdate,
+  createCoachStateSummary,
   deriveCoachGameEvents,
   getPlayerVisibleState,
   parseCoachGameContextUpdate,
@@ -50,10 +52,15 @@ describe("coach game context", () => {
       now: NOW,
     });
     const visible = getPlayerVisibleState(fullState, "user");
+    const baseUpdate = createCoachGameContextUpdate(
+      visible,
+      0,
+      [{ type: "game_started", gameId: visible.gameId }],
+      NOW,
+    );
     const accepted = parseCoachGameContextUpdate({
-      revision: 0,
+      ...baseUpdate,
       state: { ...visible, hands: fullState.hands, randomSeed: "secret" },
-      events: [{ type: "game_started", gameId: visible.gameId }],
     });
 
     expect(accepted).not.toBeNull();
@@ -61,7 +68,7 @@ describe("coach game context", () => {
     expect(JSON.stringify(accepted)).not.toContain("secret");
     expect(
       parseCoachGameContextUpdate({
-        revision: 1,
+        ...createCoachGameContextUpdate(visible, 1, [], NOW),
         state: {
           ...visible,
           remainingCardCounts: { ...visible.remainingCardCounts, user: 99 },
@@ -71,7 +78,7 @@ describe("coach game context", () => {
     ).toBeNull();
     expect(
       parseCoachGameContextUpdate({
-        revision: 2,
+        ...createCoachGameContextUpdate(visible, 2, [], NOW),
         state: visible,
         events: [
           {
@@ -84,9 +91,56 @@ describe("coach game context", () => {
     ).toBeNull();
     expect(
       parseCoachGameContextUpdate({
-        revision: 3,
-        state: getPlayerVisibleState(fullState, "left"),
+        ...createCoachGameContextUpdate(
+          getPlayerVisibleState(fullState, "left"),
+          3,
+          [{ type: "game_started", gameId: fullState.gameId }],
+          NOW,
+        ),
         events: [{ type: "game_started", gameId: fullState.gameId }],
+      }),
+    ).toBeNull();
+  });
+
+  it("creates a deterministic current-trick and played-card summary", () => {
+    const bidding = createGame({
+      gameId: "summary",
+      randomSeed: "summary",
+      now: NOW,
+    });
+    const playing = submitBid(bidding, "user", 3, NOW);
+    const card = playing.hands.user[0]!;
+    const afterPlay = playCards(playing, "user", [card.id], NOW);
+    const visible = getPlayerVisibleState(afterPlay, "user");
+    const summary = createCoachStateSummary(visible);
+
+    expect(summary.freeToPlay).toBe(false);
+    expect(summary.currentWinningPlay?.cards).toEqual([card]);
+    expect(summary.lastAction).toEqual(visible.publicHistory.at(-1));
+    expect(summary.playedRankCounts[card.rank]).toBe(1);
+    expect(summary.remainingCardCounts.user).toBe(19);
+  });
+
+  it("rejects a checksum, action index, or summary that does not match state", () => {
+    const state = getPlayerVisibleState(
+      createGame({ gameId: "integrity", randomSeed: "integrity", now: NOW }),
+      "user",
+    );
+    const update = createCoachGameContextUpdate(state, 1, [], NOW);
+
+    expect(
+      parseCoachGameContextUpdate({ ...update, actionIndex: 99 }),
+    ).toBeNull();
+    expect(
+      parseCoachGameContextUpdate({
+        ...update,
+        stateChecksum: "fnv1a32:00000000",
+      }),
+    ).toBeNull();
+    expect(
+      parseCoachGameContextUpdate({
+        ...update,
+        summary: { ...update.summary, freeToPlay: true },
       }),
     ).toBeNull();
   });

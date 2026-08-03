@@ -1,5 +1,8 @@
 import { createOllamaCoachService } from "../../apps/server/dist/index.js";
-import { getPlayerVisibleState } from "../../packages/coach-protocol/dist/index.js";
+import {
+  createCoachGameContextUpdate,
+  getPlayerVisibleState,
+} from "../../packages/coach-protocol/dist/index.js";
 import { createGame, submitBid } from "../../packages/game-core/dist/index.js";
 
 const coach = createOllamaCoachService({
@@ -28,19 +31,22 @@ try {
     "user",
     3,
   );
-  coach.updateGameContext("coach-smoke", {
-    revision: 0,
-    state: getPlayerVisibleState(game, "user", {
-      selectedCardIds: [game.hands.user[0].id],
-    }),
-    events: [
-      {
-        type: "landlord_selected",
-        seat: "user",
-        bottomCards: game.bottomCards,
-      },
-    ],
-  });
+  coach.updateGameContext(
+    "coach-smoke",
+    createCoachGameContextUpdate(
+      getPlayerVisibleState(game, "user", {
+        selectedCardIds: [game.hands.user[0].id],
+      }),
+      0,
+      [
+        {
+          type: "landlord_selected",
+          seat: "user",
+          bottomCards: game.bottomCards,
+        },
+      ],
+    ),
+  );
   const startedAt = performance.now();
   const answer = await new Promise((resolve, reject) => {
     void coach.respond(

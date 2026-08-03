@@ -1,5 +1,7 @@
 import {
+  createCoachGameContextUpdate,
   deriveCoachGameEvents,
+  type CoachStyle,
   type CoachGameContextUpdate,
   type PlayerVisibleGameState,
 } from "@ai-doudizhu/coach-protocol";
@@ -64,6 +66,7 @@ const INITIAL_SNAPSHOT: VoiceAudioSnapshot = {
 export function useVoiceAudioSession(
   gameState?: PlayerVisibleGameState,
   onHighlightChange?: (highlight: CoachHighlight | undefined) => void,
+  coachStyle: CoachStyle = "direct",
 ) {
   const [snapshot, setSnapshot] = useState(INITIAL_SNAPSHOT);
   const resourcesRef = useRef<VoiceResources | undefined>(undefined);
@@ -173,6 +176,22 @@ export function useVoiceAudioSession(
       );
       await sessionReady;
 
+      const settingsAccepted = waitForControlEvent(
+        webSocket,
+        "coach.settings.accepted",
+      );
+      sendCoachSettings(webSocket, coachStyle);
+      await settingsAccepted;
+
+      if (gameContextRef.current) {
+        const contextAccepted = waitForControlEvent(
+          webSocket,
+          "game.context.accepted",
+        );
+        sendGameContext(webSocket, gameContextRef.current);
+        await contextAccepted;
+      }
+
       const resources: VoiceResources = {
         engine,
         webSocket,
@@ -181,9 +200,6 @@ export function useVoiceAudioSession(
         intentionalClose: false,
       };
       resourcesRef.current = resources;
-      if (gameContextRef.current) {
-        sendGameContext(webSocket, gameContextRef.current);
-      }
       webSocket.addEventListener("message", (event) => {
         handleSocketMessage(event, resources, updateSnapshot, (highlight) =>
           onHighlightChangeRef.current?.(highlight),
@@ -244,7 +260,7 @@ export function useVoiceAudioSession(
         ttsPlaying: false,
       });
     }
-  }, [handleCapturedAudio, releaseResources, updateSnapshot]);
+  }, [coachStyle, handleCapturedAudio, releaseResources, updateSnapshot]);
 
   const stop = useCallback(async () => {
     const resources = resourcesRef.current;
@@ -296,11 +312,11 @@ export function useVoiceAudioSession(
   useEffect(() => {
     if (!gameState) return;
     const previous = previousGameStateRef.current;
-    const update: CoachGameContextUpdate = {
-      revision: (gameContextRef.current?.revision ?? -1) + 1,
-      state: gameState,
-      events: deriveCoachGameEvents(previous, gameState),
-    };
+    const update = createCoachGameContextUpdate(
+      gameState,
+      (gameContextRef.current?.revision ?? -1) + 1,
+      deriveCoachGameEvents(previous, gameState),
+    );
     previousGameStateRef.current = gameState;
     gameContextRef.current = update;
     const webSocket = resourcesRef.current?.webSocket;
@@ -308,6 +324,13 @@ export function useVoiceAudioSession(
       sendGameContext(webSocket, update);
     }
   }, [gameState]);
+
+  useEffect(() => {
+    const webSocket = resourcesRef.current?.webSocket;
+    if (webSocket?.readyState === WebSocket.OPEN) {
+      sendCoachSettings(webSocket, coachStyle);
+    }
+  }, [coachStyle]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -325,6 +348,16 @@ function sendGameContext(
   update: CoachGameContextUpdate,
 ): void {
   webSocket.send(JSON.stringify({ type: "game.context", update }));
+}
+
+function sendCoachSettings(webSocket: WebSocket, style: CoachStyle): void {
+  webSocket.send(JSON.stringify({ type: "coach.settings", style }));
+}
+
+function coachStyleLabel(style: string): string {
+  if (style === "warm") return "陪练型";
+  if (style === "analytical") return "分析型";
+  return "直接型";
 }
 
 export function buildWebSocketUrl(
@@ -377,6 +410,28 @@ function handleSocketMessage(
   const message = parseJsonRecord(event.data);
   if (!message) return;
   const totalSamples = message.totalSamples;
+  if (
+    message.type === "game.context.rejected" &&
+    (message.reason === "stale" || message.reason === "conflict")
+  ) {
+    updateSnapshot((current) => ({
+      ...current,
+      message:
+        message.reason === "stale"
+          ? "牌局状态更新已过期，教练继续使用较新状态"
+          : "牌局状态版本冲突，请重新连接语音",
+    }));
+  }
+  if (
+    message.type === "coach.settings.accepted" &&
+    typeof message.style === "string"
+  ) {
+    const style = message.style;
+    updateSnapshot((current) => ({
+      ...current,
+      message: `教练风格已切换为${coachStyleLabel(style)}`,
+    }));
+  }
   if (message.type === "input.audio.ack" && typeof totalSamples === "number") {
     updateSnapshot((current) => ({
       ...current,
@@ -602,6 +657,9 @@ async function waitForControlEvent(
       const message = parseJsonRecord(event.data);
       if (message?.type === "error") {
         throw new Error("本地语音服务拒绝了会话请求");
+      }
+      if (message?.type === "game.context.rejected") {
+        throw new Error("本地语音服务拒绝了牌局状态版本");
       }
       return message?.type === expectedType;
     },

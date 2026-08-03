@@ -1,7 +1,13 @@
-import { parseCoachGameContextUpdate } from "@ai-doudizhu/coach-protocol";
-import type { CoachGameContextUpdate } from "@ai-doudizhu/coach-protocol";
+import {
+  parseCoachGameContextUpdate,
+  parseCoachStyle,
+} from "@ai-doudizhu/coach-protocol";
+import type {
+  CoachGameContextUpdate,
+  CoachStyle,
+} from "@ai-doudizhu/coach-protocol";
 
-export const VOICE_PROTOCOL_VERSION = 2 as const;
+export const VOICE_PROTOCOL_VERSION = 4 as const;
 
 export interface SessionStartMessage {
   readonly type: "session.start";
@@ -38,6 +44,11 @@ export interface GameContextMessage {
   readonly update: CoachGameContextUpdate;
 }
 
+export interface CoachSettingsMessage {
+  readonly type: "coach.settings";
+  readonly style: CoachStyle;
+}
+
 export type VoiceClientControlMessage =
   | SessionStartMessage
   | TurnCancelMessage
@@ -45,6 +56,7 @@ export type VoiceClientControlMessage =
   | PingMessage
   | InputStartMessage
   | InputStopMessage
+  | CoachSettingsMessage
   | GameContextMessage;
 
 export interface SessionReadyEvent {
@@ -92,8 +104,24 @@ export interface InputStoppedEvent {
 
 export interface GameContextAcceptedEvent {
   readonly type: "game.context.accepted";
+  readonly status: "accepted" | "idempotent";
+  readonly revision: number;
+  readonly actionIndex: number;
+  readonly gameId: string;
+  readonly stateChecksum: string;
+}
+
+export interface GameContextRejectedEvent {
+  readonly type: "game.context.rejected";
+  readonly reason: "stale" | "conflict";
   readonly revision: number;
   readonly gameId: string;
+  readonly stateChecksum: string;
+}
+
+export interface CoachSettingsAcceptedEvent {
+  readonly type: "coach.settings.accepted";
+  readonly style: CoachStyle;
 }
 
 export interface SpeechStartedEvent {
@@ -109,6 +137,7 @@ export interface TranscriptEvent {
 export interface CoachResponseStartedEvent {
   readonly type: "coach.response.started";
   readonly generationId: number;
+  readonly context?: CoachResponseContext;
 }
 
 export interface CoachToolCalledEvent {
@@ -146,6 +175,14 @@ export interface CoachResponseCompletedEvent {
   readonly type: "coach.response.completed";
   readonly generationId: number;
   readonly text: string;
+  readonly context?: CoachResponseContext;
+}
+
+export interface CoachResponseContext {
+  readonly gameId: string;
+  readonly revision: number;
+  readonly actionIndex: number;
+  readonly stateChecksum: string;
 }
 
 export interface CoachErrorEvent {
@@ -180,6 +217,8 @@ export type VoiceServerControlEvent =
   | InputAudioAckEvent
   | InputStoppedEvent
   | GameContextAcceptedEvent
+  | GameContextRejectedEvent
+  | CoachSettingsAcceptedEvent
   | SpeechStartedEvent
   | TranscriptEvent
   | CoachResponseStartedEvent
@@ -246,6 +285,10 @@ export function parseVoiceClientMessage(
       return { type: "input.start", sampleRate: value.sampleRate };
     case "input.stop":
       return { type: "input.stop" };
+    case "coach.settings": {
+      const style = parseCoachStyle(value.style);
+      return style ? { type: "coach.settings", style } : null;
+    }
     case "game.context": {
       const update = parseCoachGameContextUpdate(value.update);
       return update ? { type: "game.context", update } : null;

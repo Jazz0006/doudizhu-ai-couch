@@ -1,7 +1,9 @@
 import { once } from "node:events";
 
 import {
+  createCoachGameContextUpdate,
   getPlayerVisibleState,
+  type CoachStyle,
   type CoachGameContextUpdate,
 } from "@ai-doudizhu/coach-protocol";
 import { createGame } from "@ai-doudizhu/game-core";
@@ -20,7 +22,11 @@ import type {
   SpeechRecognitionEvent,
   SpeechRecognitionService,
 } from "./speech-recognition.js";
-import type { CoachTextEvent, CoachTextService } from "./coach-text.js";
+import type {
+  CoachContextUpdateResult,
+  CoachTextEvent,
+  CoachTextService,
+} from "./coach-text.js";
 import type {
   SpeechSynthesisService,
   SynthesizedAudioChunk,
@@ -173,35 +179,66 @@ describe("voice session protocol", () => {
         }),
       );
       await nextJsonMessage(webSocket);
+      webSocket.send(
+        JSON.stringify({ type: "coach.settings", style: "analytical" }),
+      );
+      await expect(nextJsonMessage(webSocket)).resolves.toEqual({
+        type: "coach.settings.accepted",
+        style: "analytical",
+      });
+      expect(coach.style).toBe("analytical");
       const fullState = createGame({
         gameId: "voice-context",
         randomSeed: "opponent-secret-seed",
       });
+      const contextUpdate = createCoachGameContextUpdate(
+        getPlayerVisibleState(fullState, "user"),
+        4,
+        [{ type: "game_started", gameId: fullState.gameId }],
+      );
       webSocket.send(
         JSON.stringify({
           type: "game.context",
           update: {
-            revision: 4,
+            ...contextUpdate,
             state: {
-              ...getPlayerVisibleState(fullState, "user"),
+              ...contextUpdate.state,
               hands: fullState.hands,
               randomSeed: fullState.randomSeed,
             },
-            events: [{ type: "game_started", gameId: fullState.gameId }],
           },
         }),
       );
 
       await expect(nextJsonMessage(webSocket)).resolves.toEqual({
         type: "game.context.accepted",
+        status: "accepted",
         revision: 4,
+        actionIndex: 0,
         gameId: "voice-context",
+        stateChecksum: contextUpdate.stateChecksum,
       });
       expect(coach.contexts).toHaveLength(1);
       expect(JSON.stringify(coach.contexts[0])).not.toContain("hands");
       expect(JSON.stringify(coach.contexts[0])).not.toContain(
         fullState.randomSeed,
       );
+      coach.nextContextResult = {
+        status: "conflict",
+        gameId: fullState.gameId,
+        revision: 4,
+        stateChecksum: contextUpdate.stateChecksum,
+      };
+      webSocket.send(
+        JSON.stringify({ type: "game.context", update: contextUpdate }),
+      );
+      await expect(nextJsonMessage(webSocket)).resolves.toEqual({
+        type: "game.context.rejected",
+        reason: "conflict",
+        revision: 4,
+        gameId: fullState.gameId,
+        stateChecksum: contextUpdate.stateChecksum,
+      });
       webSocket.close(1000);
       await once(webSocket, "close");
     } finally {
@@ -399,12 +436,30 @@ class FakeCoachText implements CoachTextService {
     text: string;
   }> = [];
   readonly contexts: CoachGameContextUpdate[] = [];
+  nextContextResult: CoachContextUpdateResult | undefined;
   closed = false;
+  style: CoachStyle = "direct";
 
   async warmup(): Promise<void> {}
 
-  updateGameContext(_sessionId: string, update: CoachGameContextUpdate): void {
+  updateStyle(_sessionId: string, style: CoachStyle): void {
+    this.style = style;
+  }
+
+  updateGameContext(_sessionId: string, update: CoachGameContextUpdate) {
     this.contexts.push(update);
+    if (this.nextContextResult) {
+      const result = this.nextContextResult;
+      this.nextContextResult = undefined;
+      return result;
+    }
+    return {
+      status: "accepted" as const,
+      gameId: update.state.gameId,
+      revision: update.revision,
+      actionIndex: update.actionIndex,
+      stateChecksum: update.stateChecksum,
+    };
   }
 
   async respond(
