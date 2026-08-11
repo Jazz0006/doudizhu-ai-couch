@@ -35,3 +35,22 @@ export type {
   VoiceClientControlMessage,
   VoiceServerControlEvent,
 } from "./voice-protocol.js";
+export { DouZeroWorkerClient } from "./strategy/douzero-worker-client.js";
+export type {
+  DouZeroWorkerClientOptions,
+  DouZeroWorkerDiagnostic,
+} from "./strategy/douzero-worker-client.js";
+export {
+  createHeuristicRankResult,
+  createResilientStrategy,
+} from "./strategy/resilient-strategy.js";
+export type { ResilientStrategyOptions } from "./strategy/resilient-strategy.js";
+export type {
+  RankedStrategyAction,
+  StrategyPosition,
+  StrategyProvider,
+  StrategyRankRequest,
+  StrategyRankResult,
+  StrategySource,
+  StrategyStateRef,
+} from "./strategy/strategy-types.js";

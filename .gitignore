@@ -10,3 +10,5 @@ Thumbs.db
 models/voice/
 certs/local/
 tools/local/
+services/douzero-inference/.runtime/
+services/douzero-inference/models/

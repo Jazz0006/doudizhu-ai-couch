@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-08-10T11:28:24.412Z",
+  "platform": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "arch": "x64",
+    "cpu": "Intel(R) Core(TM) i7-14650HX",
+    "logicalCpuCount": 24,
+    "totalMemoryBytes": 16869285888,
+    "node": "v24.18.0"
+  },
+  "runtime": {
+    "pythonExecutable": "services/douzero-inference/.runtime/venv/Scripts/python.exe",
+    "upstreamPath": "services/douzero-inference/.runtime/upstream",
+    "manifestPath": "services/douzero-inference/model-manifest.community-wp.json",
+    "modelsDir": "services/douzero-inference/models/douzero-wp-community-c010625"
+  },
+  "modelVersion": "douzero-wp-community-c010625",
+  "objective": "wp",
+  "cases": {
+    "generated": 136,
+    "warmup": 5,
+    "measured": 55
+  },
+  "coldStartMs": {
+    "min": 2332.821,
+    "p50": 2554.557,
+    "p95": 2793.977,
+    "max": 2793.977,
+    "mean": 2560.452
+  },
+  "endToEndLatencyMs": {
+    "min": 1.22,
+    "p50": 3.999,
+    "p95": 9.415,
+    "max": 12.386,
+    "mean": 4.073
+  },
+  "modelLatencyMs": {
+    "min": 0.504,
+    "p50": 2.99,
+    "p95": 6.738,
+    "max": 9.544,
+    "mean": 2.837
+  },
+  "cacheHitMs": 0.138,
+  "workerRssBytes": {
+    "afterStartup": 247328768,
+    "afterBenchmark": 256540672
+  },
+  "configuredTimeoutsMs": {
+    "startup": 15000,
+    "inference": 1000
+  }
+}

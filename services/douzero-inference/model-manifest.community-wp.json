@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "modelVersion": "douzero-wp-community-c010625",
+  "objective": "wp",
+  "approvedForProduction": false,
+  "source": {
+    "kind": "community-mirror",
+    "repository": "https://github.com/tianqiraf/DouZero_For_HappyDouDiZhu.git",
+    "commit": "c01062592f362cfb77d6af14a34c2cbcfa614fd2",
+    "upstreamClaim": "DouZero-WP baseline",
+    "license": "Apache-2.0"
+  },
+  "models": {
+    "landlord": {
+      "filename": "landlord.ckpt",
+      "sizeBytes": 5835434,
+      "sha256": "132e26479fcb69f457ddbf1ad32a7bdc3aa73cde80a28cc91f29a62c6075955a"
+    },
+    "landlord_up": {
+      "filename": "landlord_up.ckpt",
+      "sizeBytes": 6062768,
+      "sha256": "b849ea518e66f088d635d3a29956da880f7b5ca89fabc5f70fc356c106ca6a15"
+    },
+    "landlord_down": {
+      "filename": "landlord_down.ckpt",
+      "sizeBytes": 6062768,
+      "sha256": "964720faf583f4905662c94aaf73b1a97352b76ae3686fcc949beabbacdd95d1"
+    }
+  }
+}

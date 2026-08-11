@@ -31,7 +31,8 @@
     "voice:benchmark:ollama": "node scripts/voice/benchmark-ollama.mjs",
     "coach:evaluate:state": "npm run build --workspace @ai-doudizhu/server && node scripts/voice/evaluate-coach.mjs",
     "coach:evaluate": "npm run build --workspace @ai-doudizhu/server && node scripts/voice/evaluate-coach.mjs --live",
-    "coach:evaluate:style": "npm run build --workspace @ai-doudizhu/server && node scripts/voice/evaluate-coach-style.mjs"
+    "coach:evaluate:style": "npm run build --workspace @ai-doudizhu/server && node scripts/voice/evaluate-coach-style.mjs",
+    "strategy:benchmark": "npm run build --workspace @ai-doudizhu/server && node scripts/douzero/benchmark.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

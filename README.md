@@ -2,6 +2,8 @@
 
 本仓库是 AI 斗地主实时语音教练的 npm workspaces monorepo。目前已完成开发规格中的 Task 1 至 Task 15：已具备本地 HTTPS/WSS 实时语音闭环、严格脱敏的牌局工具、选牌分析与安全高亮，以及基于 IndexedDB 的恢复和规则驱动复盘。
 
+当前正在进行下一阶段的教练策略质量升级：保留项目规则引擎作为合法动作唯一来源，使用 DouZero 对合法动作评分排序，再由本地通用模型解释候选。详细架构、接口、实施顺序和验收标准见 [DouZero 策略模型集成开发文档](docs/douzero-integration.md)。
+
 ## 环境要求
 
 - Node.js 22.12 或更高版本
@@ -15,6 +17,16 @@
 - `packages/bot-engine`：只读取单个玩家可见信息的三档传统电脑玩家与自动对局模拟器
 - `packages/coach-protocol`：生成并校验 `PlayerVisibleGameState`，派生公开牌局事件，隔离隐藏手牌并提供公开合法动作
 - `packages/shared-types`：前后端共享的二进制 PCM 音频帧协议与类型
+- `services/douzero-inference`：DouZero 上游版本锁定、Top-K 推理扩展，以及后续状态适配和常驻推理进程
+
+## DouZero 集成进度
+
+- [x] 锁定 DouZero 官方版本，实现 Top-K 排名并验证 Top-1 与官方行为一致
+- [x] 将 `PlayerVisibleGameState` 转换为不包含隐藏手牌分区的 DouZero `InfoSet`
+- [x] 对齐项目合法动作并按点数语义去重
+- [ ] 接入常驻推理进程、缓存、超时和启发式降级（真实模型链路已验证，生产批准权重与性能基线待完成）
+- [ ] 新增 `get_ranked_actions` 教练工具与 Top-1 安全高亮
+- [ ] 完成质量、合法性、隐私和性能评测
 
 ## 常用命令
 
@@ -26,6 +38,32 @@ npm run typecheck
 npm run build
 npm run format:check
 ```
+
+验证当前不依赖模型权重的 DouZero Top-K 排名层：
+
+```powershell
+npm.cmd run build --workspace @ai-doudizhu/coach-protocol
+python -m unittest discover services/douzero-inference/tests -v
+```
+
+运行真实 Python 子进程的 Node 集成测试（使用确定性假后端，不需要模型权重）：
+
+```powershell
+$env:DOUZERO_WORKER_TESTS = "1"
+npm.cmd run test --workspace @ai-doudizhu/server -- douzero-worker-client.test.ts
+```
+
+在已配置真实开发权重的机器上运行 CPU 性能基准：
+
+```powershell
+npm.cmd run strategy:benchmark -- --iterations 60 --warmup 5 --cold-starts 3
+```
+
+当前 Windows CPU 基线的冷启动 P50 为约 2.55 秒，端到端推理 P50/P95 为约 4.0/9.4ms，详见 [基准报告](services/douzero-inference/benchmarks/2026-08-10-windows-cpu-community-wp.json)。
+
+当前系统 Python 不作为最终 DouZero 生产运行时。真实模型接入阶段会使用独立、固定版本的 Python 环境，避免影响现有 Node.js 和本地语音依赖。
+
+真实模型链路使用 `services/douzero-inference/.runtime/venv` 隔离环境。当前已验证的 DouZero-WP 权重来自固定提交的社区镜像，启动前会按 manifest 校验大小和 SHA-256；该 manifest 明确标记为非生产批准，只能通过测试专用开关加载。配置和验证命令见 [DouZero 推理适配说明](services/douzero-inference/README.md)。
 
 运行一局可复现的三机器人命令行对局（难度可选 `easy`、`medium` 或 `hard`）：
 
