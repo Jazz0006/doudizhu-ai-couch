@@ -100,5 +100,17 @@ i7-14650HX it measured a 2.55-second cold-start P50, 4.00ms end-to-end P50,
 9.42ms end-to-end P95, and approximately 245MiB worker RSS after the run.
 
 Startup and inference now have separate timeout settings. The default startup
-timeout is 15 seconds; the inference timeout remains 1 second until contention
-with Ollama and local speech workers has been measured.
+timeout is 15 seconds; the inference timeout remains 1 second.
+
+The development-machine contention benchmark can be repeated with:
+
+```powershell
+npm.cmd run strategy:benchmark:contention
+```
+
+The recorded single-sample report is
+`benchmarks/2026-08-22-windows-cpu-contention.json`. Concurrent local ASR/TTS
+raised strategy end-to-end P95 from 8.02ms to 11.02ms with essentially no RSS
+change. With an Ollama request in flight, P95 was 8.65ms. These measurements
+are resource-conflict smoke tests rather than production capacity claims; both
+remain comfortably below the 1-second inference timeout.

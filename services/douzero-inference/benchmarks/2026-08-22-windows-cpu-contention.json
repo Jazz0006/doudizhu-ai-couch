@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-08-22T03:27:13.832Z",
+  "strategyModelVersion": "douzero-wp-community-c010625",
+  "strategyObjective": "wp",
+  "parameters": {
+    "iterations": 136,
+    "warmup": 5,
+    "coldStarts": 1
+  },
+  "baseline": {
+    "coldStartP50Ms": 3607.932,
+    "endToEndP50Ms": 4.045,
+    "endToEndP95Ms": 8.018,
+    "endToEndMaxMs": 34.174,
+    "modelP95Ms": 6.235,
+    "workerRssBytes": 259424256
+  },
+  "voice": {
+    "status": "measured",
+    "strategy": {
+      "coldStartP50Ms": 4828.226,
+      "endToEndP50Ms": 5.394,
+      "endToEndP95Ms": 11.021,
+      "endToEndMaxMs": 41.861,
+      "modelP95Ms": 8.709,
+      "workerRssBytes": 260456448
+    },
+    "deltaFromBaseline": {
+      "endToEndP50Ratio": 1.333,
+      "endToEndP95Ratio": 1.375,
+      "rssRatio": 1.004
+    },
+    "workload": {
+      "asrRuns": 5,
+      "ttsRuns": 4,
+      "errors": []
+    }
+  },
+  "ollama": {
+    "status": "measured",
+    "strategy": {
+      "coldStartP50Ms": 3423.292,
+      "endToEndP50Ms": 4.663,
+      "endToEndP95Ms": 8.65,
+      "endToEndMaxMs": 38.033,
+      "modelP95Ms": 6.833,
+      "workerRssBytes": 259518464
+    },
+    "deltaFromBaseline": {
+      "endToEndP50Ratio": 1.153,
+      "endToEndP95Ratio": 1.079,
+      "rssRatio": 1
+    },
+    "workload": {
+      "completedRequests": 0,
+      "errors": []
+    }
+  }
+}
